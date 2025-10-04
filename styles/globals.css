@@ -1,0 +1,4 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+:root{--qeh-navy:#0B3C5D;--qeh-blue:#3282B8}
