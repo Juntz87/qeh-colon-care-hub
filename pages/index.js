@@ -1,3 +1,0 @@
-import Layout from '../components/Layout'
-import Link from 'next/link'
-export default function Home(){ return (<Layout><div className='bg-white dark:bg-gray-800 rounded-2xl shadow-md p-8'><h1 className='text-3xl font-bold text-qehNavy dark:text-white'>QEH Colon Care Hub</h1><p className='mt-3 text-gray-600 dark:text-gray-300'>Clinic portal for colorectal cancer education and support.</p><div className='mt-6 flex gap-3'><Link href='/patients' className='px-4 py-2 rounded-md bg-qehBlue text-white'>Patient Education</Link><Link href='/medical-officers' className='px-4 py-2 rounded-md border border-qehBlue text-qehNavy'>For Medical Officers</Link></div></div></Layout>) }
