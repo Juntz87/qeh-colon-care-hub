@@ -18,7 +18,7 @@
     "framer-motion": "10.18.0",
     "lucide-react": "0.276.0",
     "swr": "2.2.0",
-    "firebase": "10.20.0"
+    "firebase": "10.12.2"
   },
   "devDependencies": {
     "eslint": "^8.57.0",
