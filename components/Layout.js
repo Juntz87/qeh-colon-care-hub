@@ -1,1 +1,0 @@
-import NavBar from './NavBar'; import Footer from './Footer'; export default function Layout({children}){return <div className='min-h-screen bg-gray-50 dark:bg-gray-900'><NavBar /> <main className='max-w-6xl mx-auto px-4 py-10'>{children}</main><Footer/></div>}
