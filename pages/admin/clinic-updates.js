@@ -55,7 +55,7 @@ export default function AdminClinicUpdates(){
 
             <form onSubmit={createUpdate} className="mt-4 space-y-3">
               <div><label className="block text-sm">Title</label><input value={title} onChange={(e)=>setTitle(e.target.value)} className="w-full mt-1 p-2 rounded border" /></div>
-              <div><label className="block text-sm">Category</label><select value={category} onChange={(e)=>setCategory(e.target.value)} className="mt-1 p-2 rounded border"><option>MDT</option><option>Scan</option><option>Social Welfare</option><option>General</option></select></div>
+              <div><label className="block text-sm">Category</label><select value={category} onChange={(e)=>setCategory(e.target.value)} className="mt-1 p-2 rounded border"><option>MDT</option><option>Scan</option><option>Social Welfare</option><option>Case Discussion</option></select></div>
               <div><label className="block text-sm">Details</label><textarea value={body} onChange={(e)=>setBody(e.target.value)} className="w-full mt-1 p-2 rounded border" rows="4" /></div>
               <div><button type="submit" className="px-4 py-2 bg-qehBlue text-white rounded">Save Update</button></div>
             </form>
