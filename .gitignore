@@ -1,4 +1,5 @@
-node_modules
-# Backup folder
+# Ignore backup and build files
 pages/BACKUP/
 BACKUP/
+.next/
+node_modules/
