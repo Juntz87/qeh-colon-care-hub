@@ -9,12 +9,11 @@ export default function NavBar() {
   const [theme, setTheme] = useState('light')
   const [user, setUser] = useState(null)
   const [isAdmin, setIsAdmin] = useState(false)
-  const [loading, setLoading] = useState(false)
 
-  // 🌗 Initialize theme
+  // 🌗 Theme Initialization
   useEffect(() => {
     const saved = localStorage.getItem('qeh_theme')
-    const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
     const init = saved || (prefersDark ? 'dark' : 'light')
     setTheme(init)
     document.documentElement.classList.toggle('dark', init === 'dark')
@@ -27,7 +26,7 @@ export default function NavBar() {
     document.documentElement.classList.toggle('dark', next === 'dark')
   }
 
-  // 👤 Auth listener
+  // 👤 Auth listener + admin detection
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u)
@@ -36,7 +35,7 @@ export default function NavBar() {
           const token = await getIdTokenResult(u)
           setIsAdmin(Boolean(token.claims?.admin))
         } catch (e) {
-          console.error('Error checking admin claim:', e)
+          console.error('Error fetching admin claim:', e)
           setIsAdmin(false)
         }
       } else {
@@ -48,19 +47,11 @@ export default function NavBar() {
 
   const handleLogin = async () => {
     try {
-      setLoading(true)
-      const result = await signInWithPopup(auth, provider)
-      const token = await getIdTokenResult(result.user)
-      if (token.claims?.admin) {
-        window.location.href = '/admin'  // ✅ redirect to full admin dashboard
-      } else {
-        window.location.reload()  // non-admin users stay on public page
-      }
+      await signInWithPopup(auth, provider)
+      window.location.reload()
     } catch (e) {
       console.error('Login failed:', e)
       alert('Login failed — check console for details.')
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -79,7 +70,7 @@ export default function NavBar() {
       <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link href="/">
-            <span className="font-semibold text-lg">QEH Colorectal Hub</span>
+            <span className="font-semibold text-lg">Colon Care Hub</span>
           </Link>
 
           {/* 🧭 Navigation */}
@@ -110,9 +101,7 @@ export default function NavBar() {
           </button>
 
           {/* Sign In / Out Button */}
-          {loading ? (
-            <span className="text-sm opacity-70">Signing in...</span>
-          ) : user ? (
+          {user ? (
             <button
               onClick={handleLogout}
               className="flex items-center gap-2 px-3 py-2 bg-white/10 hover:bg-white/20 rounded-md text-sm transition"
