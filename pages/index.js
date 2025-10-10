@@ -27,7 +27,7 @@ export default function Home() {
               transition={{ duration: 0.5 }}
               className="text-4xl font-bold text-qehNavy dark:text-white mb-4"
             >
-              QEH Colonrectal Hub
+              QEH Colorectal Hub
             </motion.h1>
 
             <motion.p
