@@ -15,7 +15,7 @@ import {
   updateDoc,
   serverTimestamp
 } from 'firebase/firestore'
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage'
 import { onAuthStateChanged, getIdTokenResult } from 'firebase/auth'
 
 const ReactQuill = dynamic(() => import('react-quill'), { ssr: false })
@@ -30,6 +30,7 @@ export default function SupportAdmin() {
   const [desc, setDesc] = useState('')
   const [file, setFile] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
   const [editingId, setEditingId] = useState(null)
   const [showForm, setShowForm] = useState(false)
   const COLLECTION = 'support_resources'
@@ -73,12 +74,27 @@ export default function SupportAdmin() {
   async function handleSave() {
     if (!title.trim()) return alert('Please enter a title.')
     setLoading(true)
+    setUploadProgress(0)
     try {
       let imageUrl = ''
       if (file) {
         const storageRef = ref(storage, `${COLLECTION}/${Date.now()}_${file.name}`)
-        const uploadRes = await uploadBytes(storageRef, file)
-        imageUrl = await getDownloadURL(uploadRes.ref)
+        const uploadTask = uploadBytesResumable(storageRef, file)
+
+        await new Promise((resolve, reject) => {
+          uploadTask.on(
+            'state_changed',
+            (snap) => {
+              const progress = (snap.bytesTransferred / snap.totalBytes) * 100
+              setUploadProgress(progress.toFixed(0))
+            },
+            (err) => reject(err),
+            async () => {
+              imageUrl = await getDownloadURL(uploadTask.snapshot.ref)
+              resolve()
+            }
+          )
+        })
       }
 
       if (editingId) {
@@ -87,6 +103,7 @@ export default function SupportAdmin() {
           link: link.trim() || '',
           description: desc.trim(),
           ...(imageUrl && { imageUrl }),
+          updatedAt: serverTimestamp()
         })
       } else {
         await addDoc(collection(db, COLLECTION), {
@@ -99,6 +116,7 @@ export default function SupportAdmin() {
         })
       }
 
+      // 🧹 Reset form
       setTitle('')
       setLink('')
       setDesc('')
@@ -111,6 +129,7 @@ export default function SupportAdmin() {
       alert('Save failed — check console.')
     } finally {
       setLoading(false)
+      setUploadProgress(0)
     }
   }
 
@@ -200,6 +219,11 @@ export default function SupportAdmin() {
               onChange={(e) => setFile(e.target.files?.[0] || null)}
               className="p-2 border rounded w-full"
             />
+            {uploadProgress > 0 && (
+              <div className="text-sm text-gray-600 dark:text-gray-300">
+                Uploading image... {uploadProgress}%
+              </div>
+            )}
             <button
               onClick={handleSave}
               disabled={loading}
@@ -214,11 +238,15 @@ export default function SupportAdmin() {
           </div>
         )}
 
+        {/* 🖼 Display Items */}
         <div className="space-y-4">
           {items.map((item) => (
-            <div key={item.id} className="p-4 border rounded bg-gray-50 dark:bg-gray-700 shadow-sm">
-              <div className="flex justify-between items-start">
-                <div>
+            <div
+              key={item.id}
+              className="p-4 border rounded bg-gray-50 dark:bg-gray-700 shadow-sm"
+            >
+              <div className="flex justify-between items-start flex-wrap gap-4">
+                <div className="flex-1 min-w-[200px]">
                   <div className="font-semibold text-qehNavy dark:text-white">
                     {item.title}
                   </div>
@@ -229,11 +257,25 @@ export default function SupportAdmin() {
                       </a>
                     </div>
                   )}
+
+                  {/* 🖼 Auto-fit image + clickable */}
                   {item.imageUrl && (
-                    <img src={item.imageUrl} alt="" className="mt-2 w-40 rounded" />
+                    <a
+                      href={item.imageUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <img
+                        src={item.imageUrl}
+                        alt=""
+                        className="mt-3 w-full max-w-lg rounded-md shadow-md object-cover transition-transform hover:scale-[1.02]"
+                        style={{ aspectRatio: '16/9' }}
+                      />
+                    </a>
                   )}
+
                   <div
-                    className="text-sm text-gray-600 dark:text-gray-300 mt-1"
+                    className="text-sm text-gray-600 dark:text-gray-300 mt-2"
                     dangerouslySetInnerHTML={{ __html: item.description }}
                   />
                   <div className="mt-2 text-xs text-gray-500">
@@ -242,6 +284,7 @@ export default function SupportAdmin() {
                       : ''}
                   </div>
                 </div>
+
                 <div className="flex gap-2">
                   <button
                     onClick={() => handleEdit(item)}
