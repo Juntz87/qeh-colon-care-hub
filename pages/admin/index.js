@@ -8,16 +8,21 @@ import { onAuthStateChanged, getIdTokenResult, signOut } from 'firebase/auth'
 
 export default function AdminDashboard() {
   const [user, setUser] = useState(null)
-  const [isAdmin, setIsAdmin] = useState(false)
+  const [role, setRole] = useState('public')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u)
-      if (u) {
-        const token = await getIdTokenResult(u)
-        setIsAdmin(!!token.claims?.admin)
+      if (!u) {
+        setUser(null)
+        setRole('public')
+        setLoading(false)
+        return
       }
+      setUser(u)
+      const token = await getIdTokenResult(u)
+      const userRole = token.claims?.role?.toLowerCase() || 'public'
+      setRole(userRole)
       setLoading(false)
     })
     return () => unsub()
@@ -43,11 +48,13 @@ export default function AdminDashboard() {
     )
   }
 
-  if (!isAdmin) {
+  if (role !== 'master') {
     return (
       <Layout>
         <div className="flex justify-center items-center py-20">
-          <p className="text-red-600 dark:text-red-400 font-semibold">Access denied.</p>
+          <p className="text-red-600 dark:text-red-400 font-semibold">
+            Access denied — Master role required.
+          </p>
         </div>
       </Layout>
     )
@@ -74,6 +81,7 @@ export default function AdminDashboard() {
             { href: '/admin/patients', label: 'Patient Education' },
             { href: '/admin/counselling', label: 'Counselling' },
             { href: '/admin/support', label: 'Support' },
+            { href: '/admin/team', label: 'Team' },
             { href: '/admin/officers-resources', label: 'Officers Resources' },
           ].map((item) => (
             <Link key={item.href} href={item.href}>

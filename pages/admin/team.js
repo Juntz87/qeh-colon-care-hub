@@ -1,243 +1,259 @@
 'use client'
-import { useEffect, useState } from 'react'
-import Layout from '../../components/Layout'
-import { auth, db, storage } from '../../lib/firebaseClient'
-import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from 'firebase/auth'
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage'
-import { collection, addDoc, getDocs, deleteDoc, doc, updateDoc, query, orderBy } from 'firebase/firestore'
+import React, { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
+import Layout from "../../components/Layout";
+import { auth, db, storage } from "../../lib/firebaseClient";
+import { onAuthStateChanged, getIdTokenResult } from "firebase/auth";
+import {
+  collection,
+  addDoc,
+  getDocs,
+  deleteDoc,
+  doc,
+  orderBy,
+  query,
+  serverTimestamp,
+  updateDoc,
+} from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
-export default function AdminTeam() {
-  const [user, setUser] = useState(null)
-  const [loadingAuth, setLoadingAuth] = useState(true)
-  const [items, setItems] = useState([])
-  const [name, setName] = useState('')
-  const [role, setRole] = useState('Medical Officer')
-  const [rank, setRank] = useState(3)
-  const [file, setFile] = useState(null)
-  const [preview, setPreview] = useState(null)
-  const [uploading, setUploading] = useState(false)
-  const provider = new GoogleAuthProvider()
+const ReactQuill = dynamic(() => import("react-quill"), { ssr: false });
+import "react-quill/dist/quill.snow.css";
 
+export default function TeamAdmin() {
+  const [user, setUser] = useState(null);
+  const [role, setRole] = useState("public");
+  const [loading, setLoading] = useState(true);
+  const [members, setMembers] = useState([]);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+
+  const [name, setName] = useState("");
+  const [position, setPosition] = useState("");
+  const [rank, setRank] = useState("");
+  const [bio, setBio] = useState("");
+  const [image, setImage] = useState(null);
+
+  const COLL = "team_members";
+
+  // 👤 Auth
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
-      setUser(u)
-      setLoadingAuth(false)
-    })
-    return () => unsub()
-  }, [])
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      if (u) {
+        const token = await getIdTokenResult(u);
+        const r = token.claims?.role?.toLowerCase() || "public";
+        setUser(u);
+        setRole(r);
+      } else {
+        setUser(null);
+        setRole("public");
+      }
+      setLoading(false);
+    });
+    return () => unsub();
+  }, []);
 
+  // 🔄 Load members sorted by rank
   useEffect(() => {
-    if (user) loadItems()
-  }, [user])
-
-  async function login() {
-    try {
-      await signInWithPopup(auth, provider)
-    } catch (e) {
-      alert('Login failed: ' + e.message)
-      console.error(e)
+    async function load() {
+      try {
+        const q = query(collection(db, COLL), orderBy("rank", "asc"));
+        const snap = await getDocs(q);
+        setMembers(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      } catch (e) {
+        console.error("Load error:", e);
+      }
     }
-  }
+    load();
+  }, []);
 
-  async function logout() {
-    await signOut(auth)
-  }
+  const handleImageUpload = async (file) => {
+    if (!file) return null;
+    const storageRef = ref(storage, `team/${file.name}`);
+    await uploadBytes(storageRef, file);
+    return await getDownloadURL(storageRef);
+  };
 
-  async function loadItems() {
+  const handleSave = async (e) => {
+    e.preventDefault();
     try {
-      const q = query(collection(db, 'team_members'), orderBy('rank', 'asc'))
-      const snap = await getDocs(q)
-      setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
-    } catch (e) {
-      console.error('Error loading items:', e)
-    }
-  }
+      const imageUrl = image ? await handleImageUpload(image) : null;
 
-  function handleFile(e) {
-    const f = e.target.files[0]
-    setFile(f)
-    if (f) setPreview(URL.createObjectURL(f))
-  }
-
-  async function uploadAndCreate(e) {
-    e.preventDefault()
-    if (!name) return alert('Enter a name first')
-    setUploading(true)
-
-    try {
-      let imageUrl = '/team/placeholder.jpg'
-
-      if (file) {
-        const storageRef = ref(storage, `team/${Date.now()}-${file.name}`)
-        const uploadTask = uploadBytesResumable(storageRef, file)
-        await new Promise((resolve, reject) => {
-          uploadTask.on('state_changed', null, reject, resolve)
-        })
-        imageUrl = await getDownloadURL(uploadTask.snapshot.ref)
+      if (editingId) {
+        await updateDoc(doc(db, COLL, editingId), {
+          name,
+          position,
+          rank: Number(rank) || 999,
+          bio,
+          ...(imageUrl && { imageUrl }),
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        await addDoc(collection(db, COLL), {
+          name,
+          position,
+          rank: Number(rank) || 999,
+          bio,
+          imageUrl,
+          createdAt: serverTimestamp(),
+        });
       }
 
-      await addDoc(collection(db, 'team_members'), {
-        name,
-        role,
-        rank: Number(rank),
-        photo: imageUrl,
-        createdAt: new Date(),
-      })
-
-      alert('✅ Team member added successfully!')
-      setName('')
-      setRole('Medical Officer')
-      setRank(3)
-      setFile(null)
-      setPreview(null)
-      await loadItems()
-    } catch (err) {
-      console.error('Error adding team member:', err)
-      alert('Error adding team member: ' + err.message)
-    } finally {
-      setUploading(false)
+      setName("");
+      setPosition("");
+      setRank("");
+      setBio("");
+      setImage(null);
+      setShowForm(false);
+      setEditingId(null);
+      window.location.reload();
+    } catch (e) {
+      console.error("Save error:", e);
     }
-  }
+  };
 
-  async function updateRank(id, newRank) {
-    try {
-      await updateDoc(doc(db, 'team_members', id), { rank: Number(newRank) })
-      await loadItems()
-    } catch (err) {
-      console.error('Error updating rank:', err)
-    }
-  }
+  const handleEdit = (m) => {
+    setEditingId(m.id);
+    setName(m.name);
+    setPosition(m.position);
+    setRank(m.rank || "");
+    setBio(m.bio);
+    setShowForm(true);
+  };
 
-  async function removeItem(id) {
-    if (!confirm('Delete this team member?')) return
-    try {
-      await deleteDoc(doc(db, 'team_members', id))
-      await loadItems()
-    } catch (err) {
-      console.error('Error deleting:', err)
-    }
+  const handleDelete = async (id) => {
+    if (!confirm("Delete this member?")) return;
+    await deleteDoc(doc(db, COLL, id));
+    setMembers(members.filter((m) => m.id !== id));
+  };
+
+  if (loading) return <Layout><div className="p-6">Loading...</div></Layout>;
+
+  if (!['master', 'officer'].includes(role)) {
+    return (
+      <Layout>
+        <div className="p-6 text-center text-gray-600 dark:text-gray-300">
+          Access denied — Master or Officer role required.
+        </div>
+      </Layout>
+    );
   }
 
   return (
     <Layout>
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-        <h1 className="text-2xl font-bold text-qehNavy dark:text-white">Admin — Team</h1>
+      <div className="p-6 space-y-6">
+        <div className="flex justify-between items-center">
+          <h1 className="text-2xl font-semibold text-qehNavy dark:text-white">
+            Meet Our Team <span className="text-gray-400 text-lg">(Admin)</span>
+          </h1>
+          <button
+            onClick={() => {
+              setShowForm(!showForm);
+              if (showForm) {
+                setEditingId(null);
+                setName("");
+                setPosition("");
+                setRank("");
+                setBio("");
+                setImage(null);
+              }
+            }}
+            className={`px-4 py-2 rounded text-white transition ${
+              showForm ? "bg-gray-500 hover:bg-gray-600" : "bg-qehBlue hover:bg-qehNavy"
+            }`}
+          >
+            {showForm ? "Cancel" : "New Member"}
+          </button>
+        </div>
 
-        {loadingAuth ? (
-          <p>Checking auth...</p>
-        ) : user ? (
-          <>
-            <div className="mt-4 flex items-center justify-between">
-              <div className="text-sm">
-                Signed in as <strong>{user.email}</strong>
-              </div>
-              <button onClick={logout} className="px-3 py-1 bg-gray-200 dark:bg-gray-700 rounded">
-                Sign out
-              </button>
-            </div>
-
-            <form onSubmit={uploadAndCreate} className="mt-4 space-y-3">
-              <div>
-                <label className="block text-sm">Name</label>
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full mt-1 p-2 rounded border"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm">Role</label>
-                <select
-                  value={role}
-                  onChange={(e) => setRole(e.target.value)}
-                  className="mt-1 p-2 rounded border"
-                >
-                  <option>Consultant (Visiting)</option>
-                  <option>Specialist</option>
-                  <option>Medical Officer</option>
-                  <option>House Officer</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm">Seniority Rank (1 = Most Senior)</label>
-                <input
-                  type="number"
-                  value={rank}
-                  min="1"
-                  onChange={(e) => setRank(e.target.value)}
-                  className="w-32 mt-1 p-2 rounded border"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm">Photo</label>
-                <input onChange={handleFile} type="file" accept="image/*" className="mt-1" />
-              </div>
-
-              {preview && (
-                <div className="mt-2">
-                  <div className="text-sm mb-1">Preview</div>
-                  <img src={preview} className="w-28 h-28 object-cover rounded-full border" alt="preview" />
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={uploading}
-                className={`px-4 py-2 rounded text-white ${
-                  uploading ? 'bg-gray-400' : 'bg-qehBlue hover:bg-qehNavy'
-                }`}
-              >
-                {uploading ? 'Uploading...' : 'Add Team Member'}
-              </button>
-            </form>
-
-            <div className="mt-6">
-              <h2 className="font-semibold mb-2">Existing Members (sorted by seniority)</h2>
-              {items.map((i) => (
-                <div
-                  key={i.id}
-                  className="p-3 border rounded bg-gray-50 dark:bg-gray-700 flex items-center justify-between mb-2"
-                >
-                  <div className="flex items-center gap-3">
-                    <img src={i.photo} alt="" className="w-12 h-12 object-cover rounded-full" />
-                    <div>
-                      <div className="font-semibold">{i.name}</div>
-                      <div className="text-xs text-gray-600 dark:text-gray-300">{i.role}</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      value={i.rank || ''}
-                      onChange={(e) => updateRank(i.id, e.target.value)}
-                      className="w-16 border p-1 rounded text-center"
-                    />
-                    <button
-                      onClick={() => removeItem(i.id)}
-                      className="px-2 py-1 bg-red-500 text-white rounded"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {items.length === 0 && (
-                <div className="text-gray-600 dark:text-gray-300">No members yet.</div>
-              )}
-            </div>
-          </>
-        ) : (
-          <div className="mt-4">
-            <p className="text-gray-700 dark:text-gray-200">Please sign in with Google to manage team members.</p>
-            <button onClick={login} className="mt-3 px-4 py-2 bg-qehBlue text-white rounded">
-              Sign in with Google
+        {showForm && (
+          <form
+            onSubmit={handleSave}
+            className="space-y-4 bg-white dark:bg-gray-800 p-6 rounded-xl shadow"
+          >
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Name"
+              className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white"
+              required
+            />
+            <input
+              type="text"
+              value={position}
+              onChange={(e) => setPosition(e.target.value)}
+              placeholder="Position / Role"
+              className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white"
+              required
+            />
+            <input
+              type="number"
+              value={rank}
+              onChange={(e) => setRank(e.target.value)}
+              placeholder="Seniority (1 = Most Senior)"
+              className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white"
+              required
+            />
+            <ReactQuill theme="snow" value={bio} onChange={setBio} />
+            <input
+              type="file"
+              onChange={(e) => setImage(e.target.files[0])}
+              accept="image/*"
+            />
+            <button
+              type="submit"
+              className="px-4 py-2 bg-qehBlue hover:bg-qehNavy text-white rounded transition duration-200"
+            >
+              {editingId ? "Update Member" : "Add Member"}
             </button>
-          </div>
+          </form>
         )}
+
+        <div className="space-y-4 mt-6">
+          {members.map((m) => (
+            <div
+              key={m.id}
+              className="p-4 border rounded bg-gray-50 dark:bg-gray-700 shadow-sm"
+            >
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="font-semibold text-qehNavy dark:text-white text-lg">
+                    {m.name} <span className="text-gray-400 text-sm">({m.rank || '-'})</span>
+                  </div>
+                  <div className="text-gray-600 dark:text-gray-300">{m.position}</div>
+                  <div
+                    className="mt-2 text-gray-700 dark:text-gray-200"
+                    dangerouslySetInnerHTML={{ __html: m.bio }}
+                  />
+                  {m.imageUrl && (
+                    <img
+                      src={m.imageUrl}
+                      alt=""
+                      className="w-24 h-24 mt-2 object-cover rounded"
+                    />
+                  )}
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleEdit(m)}
+                    className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 text-sm"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => handleDelete(m.id)}
+                    className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 text-sm"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </Layout>
-  )
+  );
 }

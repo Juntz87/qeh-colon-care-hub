@@ -8,13 +8,12 @@ import { onAuthStateChanged, signInWithPopup, signOut, getIdTokenResult } from '
 export default function NavBar() {
   const [theme, setTheme] = useState('light')
   const [user, setUser] = useState(null)
-  const [isAdmin, setIsAdmin] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const [role, setRole] = useState('public')
 
   // 🌗 Initialize theme
   useEffect(() => {
     const saved = localStorage.getItem('qeh_theme')
-    const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
     const init = saved || (prefersDark ? 'dark' : 'light')
     setTheme(init)
     document.documentElement.classList.toggle('dark', init === 'dark')
@@ -27,20 +26,22 @@ export default function NavBar() {
     document.documentElement.classList.toggle('dark', next === 'dark')
   }
 
-  // 👤 Auth listener
+  // 👤 Auth & Role listener
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u)
       if (u) {
+        setUser(u)
         try {
           const token = await getIdTokenResult(u)
-          setIsAdmin(Boolean(token.claims?.admin))
+          const r = token.claims?.role?.toLowerCase() || 'public'
+          setRole(r)
         } catch (e) {
-          console.error('Error checking admin claim:', e)
-          setIsAdmin(false)
+          console.error('Error fetching role:', e)
+          setRole('public')
         }
       } else {
-        setIsAdmin(false)
+        setUser(null)
+        setRole('public')
       }
     })
     return () => unsub()
@@ -48,19 +49,11 @@ export default function NavBar() {
 
   const handleLogin = async () => {
     try {
-      setLoading(true)
-      const result = await signInWithPopup(auth, provider)
-      const token = await getIdTokenResult(result.user)
-      if (token.claims?.admin) {
-        window.location.href = '/admin'  // ✅ redirect to full admin dashboard
-      } else {
-        window.location.reload()  // non-admin users stay on public page
-      }
+      await signInWithPopup(auth, provider)
+      window.location.reload()
     } catch (e) {
       console.error('Login failed:', e)
       alert('Login failed — check console for details.')
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -77,18 +70,21 @@ export default function NavBar() {
   return (
     <header className="bg-gradient-to-r from-qehNavy to-qehBlue text-white shadow-sm">
       <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+        {/* Left side */}
         <div className="flex items-center gap-3">
           <Link href="/">
-            <span className="font-semibold text-lg">QEH Colorectal Hub</span>
+            <span className="font-semibold text-lg">Colon Care Hub</span>
           </Link>
 
-          {/* 🧭 Navigation */}
+          {/* Navigation links */}
           <nav className="hidden md:flex gap-4 ml-6 items-center">
-            {isAdmin && (
+            {/* ✅ Officers Resources visible for Master + Officer */}
+            {['master', 'officer'].includes(role) && (
               <Link href="/officers-resources">
                 <span className="hover:underline">Officers Resources</span>
               </Link>
             )}
+
             <Link href="/patients"><span className="hover:underline">Patient Education</span></Link>
             <Link href="/counselling"><span className="hover:underline">Counselling</span></Link>
             <Link href="/support"><span className="hover:underline">Support</span></Link>
@@ -98,7 +94,7 @@ export default function NavBar() {
           </nav>
         </div>
 
-        {/* 🌗 Theme + Auth Controls */}
+        {/* Right side */}
         <div className="flex items-center gap-3">
           {/* Theme toggle */}
           <button
@@ -109,10 +105,8 @@ export default function NavBar() {
             {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
           </button>
 
-          {/* Sign In / Out Button */}
-          {loading ? (
-            <span className="text-sm opacity-70">Signing in...</span>
-          ) : user ? (
+          {/* Sign In / Out */}
+          {user ? (
             <button
               onClick={handleLogout}
               className="flex items-center gap-2 px-3 py-2 bg-white/10 hover:bg-white/20 rounded-md text-sm transition"

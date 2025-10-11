@@ -1,229 +1,253 @@
-import React, { useEffect, useState, useRef } from "react";
-import dynamic from "next/dynamic";
-import Layout from "../../components/Layout";
-import { auth, db, storage } from "../../lib/firebaseClient";
-import { onAuthStateChanged, getIdTokenResult } from "firebase/auth";
+'use client'
+import { useEffect, useState } from 'react'
+import Layout from '../../components/Layout'
+import dynamic from 'next/dynamic'
+import { auth, db, storage } from '../../lib/firebaseClient'
+import {
+  onAuthStateChanged,
+  getIdTokenResult,
+  signInWithPopup,
+  GoogleAuthProvider,
+} from 'firebase/auth'
 import {
   collection,
   addDoc,
+  query,
+  orderBy,
   getDocs,
   deleteDoc,
   doc,
-  orderBy,
-  query,
   serverTimestamp,
   updateDoc,
-} from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+} from 'firebase/firestore'
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 
-const ReactQuill = dynamic(() => import("react-quill"), { ssr: false });
-import "react-quill/dist/quill.snow.css";
+const ReactQuill = dynamic(() => import('react-quill'), { ssr: false })
+import 'react-quill/dist/quill.snow.css'
 
-export default function CounsellingAdmin() {
-  const [user, setUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [sections, setSections] = useState([]);
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
-  const [image, setImage] = useState(null);
-  const [showForm, setShowForm] = useState(false);
-  const formRef = useRef(null);
+export default function AdminCounselling() {
+  const [user, setUser] = useState(null)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [tabs, setTabs] = useState([])
+  const [title, setTitle] = useState('')
+  const [content, setContent] = useState('')
+  const [imageFile, setImageFile] = useState(null)
+  const [order, setOrder] = useState(100)
+  const [loading, setLoading] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  const [showForm, setShowForm] = useState(false)
 
-  // ✅ Use your actual Firestore collection
-  const COLL = "counselling_tabs";
+  const provider = new GoogleAuthProvider()
+  const COLL = 'counselling_tabs'
 
-  // 👤 Auth listener
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
+      setUser(u)
       if (u) {
-        try {
-          const token = await getIdTokenResult(u);
-          setIsAdmin(Boolean(token.claims?.admin));
-        } catch (e) {
-          console.error("Token error:", e);
-        }
-      } else setIsAdmin(false);
-      setLoading(false);
-    });
-    return () => unsub();
-  }, []);
+        const token = await getIdTokenResult(u)
+        const role = token.claims?.role || 'public'
+        setIsAdmin(role === 'master')
+      } else setIsAdmin(false)
+    })
+    return () => unsub()
+  }, [])
 
-  // 🔄 Load existing data
   useEffect(() => {
-    loadSections();
-  }, []);
+    if (isAdmin) fetchTabs()
+  }, [isAdmin])
 
-  async function loadSections() {
+  async function fetchTabs() {
+    const q = query(collection(db, COLL), orderBy('order', 'asc'))
+    const snap = await getDocs(q)
+    setTabs(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+  }
+
+  async function handleSave() {
+    if (!title.trim()) return alert('Please enter a title.')
+    setLoading(true)
     try {
-      const q = query(collection(db, COLL), orderBy("createdAt", "desc"));
-      const snap = await getDocs(q);
-      setSections(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      let imageUrl = null
+      if (imageFile) {
+        const imgRef = ref(storage, `counselling/${Date.now()}-${imageFile.name}`)
+        await uploadBytes(imgRef, imageFile)
+        imageUrl = await getDownloadURL(imgRef)
+      }
+
+      if (editingId) {
+        await updateDoc(doc(db, COLL, editingId), {
+          title,
+          content,
+          order: Number(order) || 100,
+          ...(imageUrl && { imageUrl }),
+        })
+        setEditingId(null)
+      } else {
+        await addDoc(collection(db, COLL), {
+          title,
+          content,
+          order: Number(order) || 100,
+          imageUrl,
+          createdAt: serverTimestamp(),
+        })
+      }
+
+      setTitle('')
+      setContent('')
+      setImageFile(null)
+      setOrder(100)
+      setShowForm(false)
+      fetchTabs()
     } catch (e) {
-      console.error("Load error:", e);
+      console.error('Save error:', e)
+      alert('❌ Failed to save — check console.')
+    } finally {
+      setLoading(false)
     }
   }
 
-  async function handleAdd() {
-    if (!title.trim()) return alert("Please enter a title.");
-    try {
-      let imageUrl = "";
-      if (image) {
-        const imgRef = ref(storage, `counselling/${Date.now()}_${image.name}`);
-        await uploadBytes(imgRef, image);
-        imageUrl = await getDownloadURL(imgRef);
-      }
-
-      await addDoc(collection(db, COLL), {
-        title,
-        content,
-        imageUrl,
-        createdAt: serverTimestamp(),
-      });
-
-      setTitle("");
-      setContent("");
-      setImage(null);
-      setShowForm(false);
-      await loadSections();
-    } catch (e) {
-      console.error("Add error:", e);
-      alert("Failed to add section — check console.");
-    }
+  function handleEdit(tab) {
+    setEditingId(tab.id)
+    setTitle(tab.title)
+    setContent(tab.content || '')
+    setOrder(tab.order || 100)
+    setShowForm(true)
   }
 
   async function handleDelete(id) {
-    if (!confirm("Delete this entry?")) return;
-    try {
-      await deleteDoc(doc(db, COLL, id));
-      await loadSections();
-    } catch (e) {
-      console.error("Delete error:", e);
-    }
+    if (!confirm('Delete this tab?')) return
+    await deleteDoc(doc(db, COLL, id))
+    fetchTabs()
   }
 
-  async function handleEdit(id, existing) {
-    const newTitle = prompt("Edit title:", existing.title);
-    if (!newTitle) return;
+  async function handleLogin() {
     try {
-      await updateDoc(doc(db, COLL, id), { title: newTitle });
-      await loadSections();
+      await signInWithPopup(auth, provider)
+      window.location.reload()
     } catch (e) {
-      console.error("Edit error:", e);
+      console.error(e)
+      alert('Login failed')
     }
   }
-
-  const handleToggleForm = () => {
-    setShowForm(!showForm);
-    if (!showForm && formRef.current) {
-      setTimeout(() => {
-        formRef.current.scrollIntoView({ behavior: "smooth" });
-      }, 100);
-    }
-  };
-
-  if (loading)
-    return (
-      <Layout>
-        <div className="p-6">Loading...</div>
-      </Layout>
-    );
 
   if (!user)
     return (
       <Layout>
-        <div className="p-6">Please sign in to access admin pages.</div>
+        <div className="text-center py-16">
+          <h2 className="text-2xl font-semibold mb-4">Please Sign In</h2>
+          <button
+            onClick={handleLogin}
+            className="bg-qehBlue text-white px-4 py-2 rounded hover:bg-qehNavy transition"
+          >
+            Sign in with Google
+          </button>
+        </div>
       </Layout>
-    );
+    )
 
   if (!isAdmin)
     return (
       <Layout>
-        <div className="p-6">Access denied — admin only.</div>
+        <div className="text-center py-16 text-red-500">
+          You do not have permission to access this page.
+        </div>
       </Layout>
-    );
+    )
 
   return (
     <Layout>
-      <div className="p-6 space-y-6">
-        {/* Header */}
-        <div className="flex justify-between items-center">
-          <h1 className="text-2xl font-semibold">Counselling — Admin</h1>
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h1 className="text-2xl font-bold text-qehNavy dark:text-white">
+            Counselling <span className="text-gray-400 text-lg">(Admin)</span>
+          </h1>
           <button
-            onClick={handleToggleForm}
-            className="px-4 py-2 bg-qehBlue text-white rounded hover:opacity-90"
+            onClick={() => {
+              setShowForm(!showForm)
+              setEditingId(null)
+              setTitle('')
+              setContent('')
+              setImageFile(null)
+              setOrder(100)
+            }}
+            className={`px-4 py-2 rounded text-white transition ${
+              showForm ? 'bg-gray-500 hover:bg-gray-600' : 'bg-qehBlue hover:bg-qehNavy'
+            }`}
           >
-            {showForm ? "Cancel" : "New Update"}
+            {showForm ? 'Cancel' : 'New Update'}
           </button>
         </div>
 
-        {/* New Form */}
         {showForm && (
-          <div
-            ref={formRef}
-            className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow space-y-3"
-          >
+          <div className="grid gap-4 mb-8 p-4 border rounded bg-gray-50 dark:bg-gray-700">
             <input
-              className="border rounded p-2 w-full"
-              placeholder="Section Title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              placeholder="Tab Title (e.g. Anterior Resection)"
+              className="p-2 border rounded w-full dark:bg-gray-700 dark:text-white"
             />
             <ReactQuill theme="snow" value={content} onChange={setContent} />
             <input
+              type="number"
+              value={order}
+              onChange={(e) => setOrder(e.target.value)}
+              placeholder="Order (e.g. 1, 2, 3)"
+              className="p-2 border rounded w-full dark:bg-gray-700 dark:text-white"
+            />
+            <input
               type="file"
               accept="image/*"
-              onChange={(e) => setImage(e.target.files[0])}
+              onChange={(e) => setImageFile(e.target.files[0])}
+              className="p-2 border rounded w-full"
             />
             <button
-              onClick={handleAdd}
-              className="px-4 py-2 bg-qehBlue text-white rounded hover:opacity-90"
+              onClick={handleSave}
+              disabled={loading}
+              className="bg-qehBlue text-white px-4 py-2 rounded hover:bg-qehNavy transition"
             >
-              Save Section
+              {loading
+                ? 'Saving...'
+                : editingId
+                ? 'Update Counselling Tab'
+                : 'Add New Counselling Tab'}
             </button>
           </div>
         )}
 
-        {/* Display Existing */}
-        <div className="space-y-3">
-          {sections.map((s) => (
+        <div className="space-y-4">
+          {tabs.map((t) => (
             <div
-              key={s.id}
-              className="bg-white dark:bg-gray-700 p-4 rounded-lg flex justify-between items-center"
+              key={t.id}
+              className="p-4 border rounded bg-gray-50 dark:bg-gray-700 shadow-sm"
             >
-              <div>
-                <h2 className="font-semibold">{s.title}</h2>
-                <div
-                  className="text-sm text-gray-400"
-                  dangerouslySetInnerHTML={{ __html: s.content }}
-                />
-                {s.imageUrl && (
-                  <img
-                    src={s.imageUrl}
-                    alt={s.title}
-                    className="mt-2 w-32 h-32 object-cover rounded"
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="font-semibold text-qehNavy dark:text-white">
+                    {t.title} <span className="text-gray-400">#{t.order}</span>
+                  </div>
+                  <div
+                    className="text-sm text-gray-600 dark:text-gray-300 mt-1"
+                    dangerouslySetInnerHTML={{ __html: t.content }}
                   />
-                )}
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => handleEdit(s.id, s)}
-                  className="px-3 py-1 bg-yellow-500 text-white rounded"
-                >
-                  Edit
-                </button>
-                <button
-                  onClick={() => handleDelete(s.id)}
-                  className="px-3 py-1 bg-red-600 text-white rounded"
-                >
-                  Delete
-                </button>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleEdit(t)}
+                    className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 transition"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => handleDelete(t.id)}
+                    className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 transition"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
             </div>
           ))}
         </div>
       </div>
     </Layout>
-  );
+  )
 }

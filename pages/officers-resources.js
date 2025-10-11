@@ -1,4 +1,4 @@
-// pages/officers-resources.js
+'use client'
 import React, { useEffect, useState } from "react";
 import Layout from "../components/Layout";
 import { auth, db } from "../lib/firebaseClient";
@@ -7,32 +7,31 @@ import { collection, getDocs, query, orderBy } from "firebase/firestore";
 
 export default function OfficersResources() {
   const [user, setUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [role, setRole] = useState('public');
   const [loadingAuth, setLoadingAuth] = useState(true);
 
   const [tabs, setTabs] = useState([]);
   const [active, setActive] = useState(0);
   const [loadingTabs, setLoadingTabs] = useState(true);
 
+  // 👤 Auth + Role
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
       if (u) {
-        try {
-          const token = await getIdTokenResult(u);
-          setIsAdmin(Boolean(token.claims?.admin));
-        } catch (e) {
-          console.error("token error:", e);
-          setIsAdmin(false);
-        }
+        const token = await getIdTokenResult(u);
+        const r = token.claims?.role?.toLowerCase() || 'public';
+        setUser(u);
+        setRole(r);
       } else {
-        setIsAdmin(false);
+        setUser(null);
+        setRole('public');
       }
       setLoadingAuth(false);
     });
     return () => unsub();
   }, []);
 
+  // 🔄 Load data
   useEffect(() => {
     async function load() {
       setLoadingTabs(true);
@@ -40,7 +39,6 @@ export default function OfficersResources() {
         const q = query(collection(db, "officer_resources"), orderBy("order", "asc"));
         const snap = await getDocs(q);
         const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        // fallback sort if order missing:
         data.sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
         setTabs(data);
         setActive(0);
@@ -53,18 +51,13 @@ export default function OfficersResources() {
     load();
   }, []);
 
-  if (loadingAuth) return <Layout><div className="p-6">Checking access...</div></Layout>;
+  if (loadingAuth) return <Layout><div className="p-6 text-center">Checking access...</div></Layout>;
 
-  if (!isAdmin) {
+  if (!['master', 'officer'].includes(role)) {
     return (
       <Layout>
-        <div className="p-6">
-          <h1 className="text-2xl font-semibold mb-4">Officers Resources</h1>
-          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
-            <p className="text-gray-700 dark:text-gray-300">
-              403 — Access restricted. This section is only available to authorised Medical Officers / Admins.
-            </p>
-          </div>
+        <div className="p-6 text-center text-gray-700 dark:text-gray-300">
+          403 — Access restricted. This section is only available to authorised Medical Officers / Admins.
         </div>
       </Layout>
     );
@@ -73,7 +66,7 @@ export default function OfficersResources() {
   return (
     <Layout>
       <div className="p-6">
-        <h1 className="text-2xl font-semibold mb-4 text-qehNavy">Officers Resources</h1>
+        <h1 className="text-2xl font-semibold mb-4 text-qehNavy dark:text-white">Officers Resources</h1>
 
         {loadingTabs && <div className="text-gray-500">Loading resources...</div>}
 

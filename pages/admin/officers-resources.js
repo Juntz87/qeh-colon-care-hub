@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useRef } from "react";
+'use client'
+import React, { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import Layout from "../../components/Layout";
 import { auth, db, storage } from "../../lib/firebaseClient";
@@ -16,217 +17,210 @@ import {
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
-// ✨ Rich text editor
 const ReactQuill = dynamic(() => import("react-quill"), { ssr: false });
 import "react-quill/dist/quill.snow.css";
 
 export default function OfficersResourcesAdmin() {
   const [user, setUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [role, setRole] = useState("public");
   const [loading, setLoading] = useState(true);
   const [resources, setResources] = useState([]);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [image, setImage] = useState(null);
   const [showForm, setShowForm] = useState(false);
-  const formRef = useRef(null);
+  const [editingId, setEditingId] = useState(null);
 
-  const COLL = "officer_resources"; // ✅ Correct Firestore collection
+  const COLL = "officer_resources";
 
-  // 👤 Firebase Auth + Admin Check
+  // 👤 Auth + Role
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
       if (u) {
-        try {
-          const token = await getIdTokenResult(u);
-          setIsAdmin(Boolean(token.claims?.admin));
-        } catch (e) {
-          console.error("Token error:", e);
-        }
+        const token = await getIdTokenResult(u);
+        const r = token.claims?.role?.toLowerCase() || "public";
+        setUser(u);
+        setRole(r);
       } else {
-        setIsAdmin(false);
+        setUser(null);
+        setRole("public");
       }
       setLoading(false);
     });
     return () => unsub();
   }, []);
 
-  // 🔄 Fetch existing officer resources
+  // 🔄 Load existing resources
   useEffect(() => {
-    loadResources();
+    async function load() {
+      try {
+        const q = query(collection(db, COLL), orderBy("createdAt", "desc"));
+        const snap = await getDocs(q);
+        setResources(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      } catch (e) {
+        console.error("Load error:", e);
+      }
+    }
+    load();
   }, []);
 
-  async function loadResources() {
-    try {
-      const q = query(collection(db, COLL), orderBy("createdAt", "desc"));
-      const snap = await getDocs(q);
-      setResources(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    } catch (e) {
-      console.error("Load error:", e);
-    }
-  }
+  const handleImageUpload = async (file) => {
+    if (!file) return null;
+    const storageRef = ref(storage, `officers/${file.name}`);
+    await uploadBytes(storageRef, file);
+    return await getDownloadURL(storageRef);
+  };
 
-  // ➕ Add new resource
-  async function handleAdd() {
-    if (!title.trim()) return alert("Please enter a title.");
+  const handleSave = async (e) => {
+    e.preventDefault();
     try {
-      let imageUrl = "";
-      if (image) {
-        const imgRef = ref(storage, `officers/${Date.now()}_${image.name}`);
-        await uploadBytes(imgRef, image);
-        imageUrl = await getDownloadURL(imgRef);
+      const imageUrl = image ? await handleImageUpload(image) : null;
+
+      if (editingId) {
+        await updateDoc(doc(db, COLL, editingId), {
+          title,
+          content,
+          ...(imageUrl && { imageUrl }),
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        await addDoc(collection(db, COLL), {
+          title,
+          content,
+          imageUrl,
+          createdAt: serverTimestamp(),
+        });
       }
-
-      await addDoc(collection(db, COLL), {
-        title,
-        content,
-        imageUrl,
-        createdAt: serverTimestamp(),
-      });
 
       setTitle("");
       setContent("");
       setImage(null);
       setShowForm(false);
-      await loadResources();
+      setEditingId(null);
+      window.location.reload();
     } catch (e) {
-      console.error("Add error:", e);
-      alert("Failed to add resource — check console.");
-    }
-  }
-
-  // ✏️ Edit existing
-  async function handleEdit(id, existing) {
-    const newTitle = prompt("Edit title:", existing.title);
-    if (!newTitle) return;
-    try {
-      await updateDoc(doc(db, COLL, id), { title: newTitle });
-      await loadResources();
-    } catch (e) {
-      console.error("Edit error:", e);
-    }
-  }
-
-  // ❌ Delete existing
-  async function handleDelete(id) {
-    if (!confirm("Delete this entry?")) return;
-    try {
-      await deleteDoc(doc(db, COLL, id));
-      await loadResources();
-    } catch (e) {
-      console.error("Delete error:", e);
-    }
-  }
-
-  // 🔘 Toggle form visibility
-  const handleToggleForm = () => {
-    setShowForm(!showForm);
-    if (!showForm && formRef.current) {
-      setTimeout(() => {
-        formRef.current.scrollIntoView({ behavior: "smooth" });
-      }, 100);
+      console.error("Error saving:", e);
     }
   };
 
-  // 🕒 Loading states
-  if (loading)
+  const handleEdit = (r) => {
+    setEditingId(r.id);
+    setTitle(r.title);
+    setContent(r.content);
+    setShowForm(true);
+  };
+
+  const handleDelete = async (id) => {
+    if (!confirm("Delete this entry?")) return;
+    await deleteDoc(doc(db, COLL, id));
+    setResources(resources.filter((r) => r.id !== id));
+  };
+
+  if (loading) return <Layout><div className="p-6">Loading...</div></Layout>;
+
+  if (!['master', 'officer'].includes(role)) {
     return (
       <Layout>
-        <div className="p-6">Loading...</div>
+        <div className="p-6 text-center text-gray-600 dark:text-gray-300">
+          Access denied — Master or Officer role required.
+        </div>
       </Layout>
     );
+  }
 
-  if (!user)
-    return (
-      <Layout>
-        <div className="p-6">Please sign in to access admin pages.</div>
-      </Layout>
-    );
-
-  if (!isAdmin)
-    return (
-      <Layout>
-        <div className="p-6">Access denied — admin only.</div>
-      </Layout>
-    );
-
-  // 🧱 Main Render
   return (
     <Layout>
       <div className="p-6 space-y-6">
-        {/* Header */}
         <div className="flex justify-between items-center">
-          <h1 className="text-2xl font-semibold">Officers Resources — Admin</h1>
+          <h1 className="text-2xl font-semibold text-qehNavy dark:text-white">
+            Officers Resources <span className="text-gray-400 text-lg">(Admin)</span>
+          </h1>
           <button
-            onClick={handleToggleForm}
-            className="px-4 py-2 bg-qehBlue text-white rounded hover:opacity-90"
+            onClick={() => {
+              setShowForm(!showForm);
+              if (showForm) {
+                setEditingId(null);
+                setTitle("");
+                setContent("");
+                setImage(null);
+              }
+            }}
+            className={`px-4 py-2 rounded text-white transition ${
+              showForm
+                ? "bg-gray-500 hover:bg-gray-600"
+                : "bg-qehBlue hover:bg-qehNavy"
+            }`}
           >
             {showForm ? "Cancel" : "New Update"}
           </button>
         </div>
 
-        {/* Add / Edit Form */}
         {showForm && (
-          <div
-            ref={formRef}
-            className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow space-y-3"
+          <form
+            onSubmit={handleSave}
+            className="space-y-4 bg-white dark:bg-gray-800 p-6 rounded-xl shadow"
           >
             <input
-              className="border rounded p-2 w-full"
-              placeholder="Section Title"
+              type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              placeholder="Title"
+              className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white"
+              required
             />
             <ReactQuill theme="snow" value={content} onChange={setContent} />
             <input
               type="file"
-              accept="image/*"
               onChange={(e) => setImage(e.target.files[0])}
+              accept="image/*"
             />
             <button
-              onClick={handleAdd}
-              className="px-4 py-2 bg-qehBlue text-white rounded hover:opacity-90"
+              type="submit"
+              className="px-4 py-2 bg-qehBlue hover:bg-qehNavy text-white rounded transition duration-200"
             >
-              Save Resource
+              {editingId ? "Update Entry" : "Submit Update"}
             </button>
-          </div>
+          </form>
         )}
 
-        {/* Existing Data */}
-        <div className="space-y-3">
+        <div className="space-y-4 mt-6">
           {resources.map((r) => (
             <div
               key={r.id}
-              className="bg-white dark:bg-gray-700 p-4 rounded-lg flex justify-between items-start"
+              className="p-4 border rounded bg-gray-50 dark:bg-gray-700 shadow-sm"
             >
-              <div>
-                <h2 className="font-semibold">{r.title}</h2>
-                <div
-                  className="text-sm text-gray-400 mt-1"
-                  dangerouslySetInnerHTML={{ __html: r.content }}
-                />
-                {r.imageUrl && (
-                  <img
-                    src={r.imageUrl}
-                    alt={r.title}
-                    className="mt-2 w-32 h-32 object-cover rounded"
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="font-semibold text-qehNavy dark:text-white">
+                    {r.title || "Untitled"}
+                  </div>
+                  <div
+                    className="mt-2 text-gray-700 dark:text-gray-200"
+                    dangerouslySetInnerHTML={{ __html: r.content }}
                   />
-                )}
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => handleEdit(r.id, r)}
-                  className="px-3 py-1 bg-yellow-500 text-white rounded"
-                >
-                  Edit
-                </button>
-                <button
-                  onClick={() => handleDelete(r.id)}
-                  className="px-3 py-1 bg-red-600 text-white rounded"
-                >
-                  Delete
-                </button>
+                  {r.imageUrl && (
+                    <img
+                      src={r.imageUrl}
+                      alt=""
+                      className="w-24 h-24 mt-2 object-cover rounded"
+                    />
+                  )}
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleEdit(r)}
+                    className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 text-sm"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => handleDelete(r.id)}
+                    className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 text-sm"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
             </div>
           ))}

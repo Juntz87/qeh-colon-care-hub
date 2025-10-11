@@ -3,3 +3,4 @@ pages/BACKUP/
 BACKUP/
 .next/
 node_modules/
+serviceAccountKey.json

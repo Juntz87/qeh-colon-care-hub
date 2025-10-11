@@ -1,239 +1,258 @@
-// pages/admin/patients.js
-import React, { useEffect, useState, useRef } from "react";
-import dynamic from "next/dynamic";
-import Layout from "../../components/Layout";
-import { auth, db, storage } from "../../lib/firebaseClient";
-import { onAuthStateChanged, getIdTokenResult } from "firebase/auth";
+'use client'
+import { useEffect, useState } from 'react'
+import Layout from '../../components/Layout'
+import dynamic from 'next/dynamic'
 import {
   collection,
   addDoc,
-  query,
-  orderBy,
   getDocs,
-  serverTimestamp,
   deleteDoc,
   doc,
   updateDoc,
-} from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+  serverTimestamp
+} from 'firebase/firestore'
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { db, storage, auth } from '../../lib/firebaseClient'
+import { onAuthStateChanged, getIdTokenResult } from 'firebase/auth'
 
-const ReactQuill = dynamic(() => import("react-quill"), { ssr: false });
-import "react-quill/dist/quill.snow.css";
+const ReactQuill = dynamic(() => import('react-quill'), { ssr: false })
+import 'react-quill/dist/quill.snow.css'
 
-export default function AdminPatients() {
-  const [user, setUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [tabs, setTabs] = useState([]);
-  const [title, setTitle] = useState("");
-  const [order, setOrder] = useState(100);
-  const [content, setContent] = useState("");
-  const [image, setImage] = useState(null);
-  const [showForm, setShowForm] = useState(false);
-  const formRef = useRef(null);
-  const COLL = "patients_tabs";
+export default function PatientsAdmin() {
+  const [updates, setUpdates] = useState([])
+  const [title, setTitle] = useState('')
+  const [body, setBody] = useState('')
+  const [image, setImage] = useState(null)
+  const [user, setUser] = useState(null)
+  const [role, setRole] = useState(null)
+  const [showForm, setShowForm] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [editingId, setEditingId] = useState(null)
+  const [order, setOrder] = useState(100)
 
+  // 🧠 Auth + Role
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
+      setUser(u)
       if (u) {
-        try {
-          const token = await getIdTokenResult(u);
-          setIsAdmin(Boolean(token.claims?.admin));
-        } catch (e) {
-          console.error("token error", e);
-        }
+        const token = await getIdTokenResult(u)
+        setRole(token.claims?.role || 'public')
       } else {
-        setIsAdmin(false);
+        setRole('public')
       }
-      setLoading(false);
-    });
-    return () => unsub();
-  }, []);
+      setLoading(false)
+    })
+    return () => unsub()
+  }, [])
 
+  // 🔄 Load from patients_tabs
   useEffect(() => {
-    loadTabs();
-  }, []);
-
-  async function loadTabs() {
-    try {
-      const q = query(collection(db, COLL), orderBy("order", "asc"));
-      const snap = await getDocs(q);
-      setTabs(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    } catch (e) {
-      console.error("load patients tabs:", e);
+    const fetchData = async () => {
+      const snap = await getDocs(collection(db, 'patients_tabs'))
+      const data = snap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+        createdAt: d.data().createdAt?.seconds
+          ? new Date(d.data().createdAt.seconds * 1000)
+          : new Date()
+      }))
+      setUpdates(data.sort((a, b) => a.order - b.order))
     }
+    fetchData()
+  }, [])
+
+  // 🖼️ Upload
+  const handleImageUpload = async (file) => {
+    if (!file) return null
+    const storageRef = ref(storage, `patients/${file.name}`)
+    await uploadBytes(storageRef, file)
+    return await getDownloadURL(storageRef)
   }
 
-  async function handleAdd() {
-    if (!title.trim()) return alert("Enter a title");
+  // 💾 Add / Update
+  const handleSave = async (e) => {
+    e.preventDefault()
     try {
-      let imageUrl = "";
-      if (image) {
-        const imgRef = ref(storage, `patients/${Date.now()}_${image.name}`);
-        await uploadBytes(imgRef, image);
-        imageUrl = await getDownloadURL(imgRef);
+      const imageUrl = image ? await handleImageUpload(image) : null
+
+      if (editingId) {
+        await updateDoc(doc(db, 'patients_tabs', editingId), {
+          title,
+          content: body,
+          order,
+          updatedAt: serverTimestamp(),
+          ...(imageUrl && { imageUrl })
+        })
+      } else {
+        await addDoc(collection(db, 'patients_tabs'), {
+          title,
+          content: body,
+          imageUrl,
+          order,
+          createdAt: serverTimestamp()
+        })
       }
 
-      await addDoc(collection(db, COLL), {
-        title,
-        content,
-        imageUrl,
-        order: Number(order) || 100,
-        createdAt: serverTimestamp(),
-      });
-
-      setTitle("");
-      setContent("");
-      setOrder(100);
-      setImage(null);
-      setShowForm(false);
-      await loadTabs();
-    } catch (e) {
-      console.error("add error:", e);
-      alert("Failed to add tab — check console.");
+      setTitle('')
+      setBody('')
+      setImage(null)
+      setOrder(100)
+      setShowForm(false)
+      setEditingId(null)
+      window.location.reload()
+    } catch (err) {
+      console.error('Error saving:', err)
     }
   }
 
-  async function handleDelete(id) {
-    if (!confirm("Delete this tab?")) return;
-    try {
-      await deleteDoc(doc(db, COLL, id));
-      await loadTabs();
-    } catch (e) {
-      console.error("delete error:", e);
-    }
+  // ✏️ Edit
+  const handleEdit = (u) => {
+    setEditingId(u.id)
+    setTitle(u.title || '')
+    setBody(u.content || '')
+    setOrder(u.order || 100)
+    setShowForm(true)
   }
 
-  async function handleChangeOrder(id) {
-    const newOrder = prompt("New order (number):");
-    if (!newOrder) return;
-    try {
-      await updateDoc(doc(db, COLL, id), { order: Number(newOrder) });
-      await loadTabs();
-    } catch (e) {
-      console.error("update order error:", e);
-    }
+  // ❌ Delete
+  const handleDelete = async (id) => {
+    if (!confirm('Delete this entry?')) return
+    await deleteDoc(doc(db, 'patients_tabs', id))
+    setUpdates(updates.filter((u) => u.id !== id))
   }
 
-  const handleToggleForm = () => {
-    setShowForm(!showForm);
-    if (!showForm && formRef.current) {
-      setTimeout(() => {
-        formRef.current.scrollIntoView({ behavior: "smooth" });
-      }, 100);
-    }
-  };
+  if (loading) return <Layout>Loading...</Layout>
 
-  if (loading)
+  if (role === 'public') {
     return (
       <Layout>
-        <div className="p-6">Loading...</div>
+        <div className="text-center py-20 text-gray-600 dark:text-gray-300">
+          Please sign in to access admin pages.
+        </div>
       </Layout>
-    );
+    )
+  }
 
-  if (!user)
+  if (!['master', 'officer'].includes(role)) {
     return (
       <Layout>
-        <div className="p-6">Please sign in to access admin pages.</div>
+        <div className="text-center py-20 text-gray-600 dark:text-gray-300">
+          Access denied.
+        </div>
       </Layout>
-    );
+    )
+  }
 
-  if (!isAdmin)
-    return (
-      <Layout>
-        <div className="p-6">Access denied — admin only.</div>
-      </Layout>
-    );
-
+  // ✅ UI
   return (
     <Layout>
-      <div className="p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h1 className="text-2xl font-semibold">Patients — Admin</h1>
+      <div className="p-8">
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-2xl font-bold text-qehNavy dark:text-white">
+            Patient Education <span className="text-gray-400 text-lg">(Admin)</span>
+          </h1>
           <button
-            onClick={handleToggleForm}
-            className="px-4 py-2 bg-qehBlue text-white rounded hover:opacity-90"
+            onClick={() => {
+              setShowForm(!showForm)
+              if (showForm) {
+                setEditingId(null)
+                setTitle('')
+                setBody('')
+                setImage(null)
+                setOrder(100)
+              }
+            }}
+            className={`px-4 py-2 rounded text-white transition ${
+              showForm
+                ? 'bg-gray-500 hover:bg-gray-600'
+                : 'bg-qehBlue hover:bg-qehNavy'
+            }`}
           >
-            {showForm ? "Cancel" : "New Update"}
+            {showForm ? 'Cancel' : 'New Update'}
           </button>
         </div>
 
         {showForm && (
-          <div ref={formRef} className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow mb-6">
+          <form
+            onSubmit={handleSave}
+            className="space-y-4 bg-white dark:bg-gray-800 p-6 rounded-xl shadow"
+          >
             <input
-              className="border rounded p-2 w-full mb-2"
-              placeholder="Tab Title (e.g. Chemotherapy)"
+              type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              placeholder="Title"
+              className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white"
+              required
             />
-
-            <div className="flex gap-2 mb-2">
-              <input
-                className="border rounded p-2 w-32"
-                placeholder="Order"
-                type="number"
-                value={order}
-                onChange={(e) => setOrder(e.target.value)}
-              />
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => setImage(e.target.files[0])}
-                className="flex-1"
-              />
-            </div>
-
-            <div className="mb-3">
-              <ReactQuill theme="snow" value={content} onChange={setContent} />
-            </div>
-
+            <ReactQuill theme="snow" value={body} onChange={setBody} />
+            <input
+              type="number"
+              value={order}
+              onChange={(e) => setOrder(Number(e.target.value))}
+              placeholder="Order"
+              className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white"
+            />
+            <input
+              type="file"
+              onChange={(e) => setImage(e.target.files[0])}
+              accept="image/*"
+            />
             <button
-              onClick={handleAdd}
-              className="px-4 py-2 bg-qehBlue text-white rounded hover:opacity-90"
+              type="submit"
+              className="px-4 py-2 bg-qehBlue hover:bg-qehNavy text-white rounded transition duration-200"
             >
-              Add Tab
+              {editingId ? 'Update Entry' : 'Submit Update'}
             </button>
-          </div>
+          </form>
         )}
 
-        {/* Existing tabs */}
-        <h2 className="text-lg font-semibold mb-2">Existing Tabs</h2>
-        <div className="space-y-3">
-          {tabs.map((t) => (
+        <div className="space-y-4 mt-6">
+          {updates.map((u) => (
             <div
-              key={t.id}
-              className="bg-white dark:bg-gray-700 p-3 rounded flex items-start justify-between"
+              key={u.id}
+              className="p-4 border rounded bg-gray-50 dark:bg-gray-700 shadow-sm"
             >
-              <div>
-                <div className="font-medium">
-                  {t.title}{" "}
-                  <span className="text-sm text-gray-500">#{t.order}</span>
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="font-semibold text-qehNavy dark:text-white">
+                    {u.title || 'Untitled'}
+                  </div>
+                  <div className="text-sm text-gray-600 dark:text-gray-300">
+                    Order: {u.order || 'N/A'}
+                  </div>
+                  <div
+                    className="mt-2 text-gray-700 dark:text-gray-200"
+                    dangerouslySetInnerHTML={{ __html: u.content }}
+                  />
+                  {u.imageUrl && (
+                    <img
+                      src={u.imageUrl}
+                      alt=""
+                      className="w-24 h-24 mt-2 object-cover rounded"
+                    />
+                  )}
                 </div>
-                <div className="text-sm text-gray-500">
-                  {t.createdAt?.toDate
-                    ? new Date(t.createdAt.toDate()).toLocaleString()
-                    : ""}
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleEdit(u)}
+                    className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 text-sm"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => handleDelete(u.id)}
+                    className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 text-sm"
+                  >
+                    Delete
+                  </button>
                 </div>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => handleChangeOrder(t.id)}
-                  className="px-3 py-1 bg-yellow-500 text-white rounded"
-                >
-                  Change order
-                </button>
-                <button
-                  onClick={() => handleDelete(t.id)}
-                  className="px-3 py-1 bg-red-600 text-white rounded"
-                >
-                  Delete
-                </button>
               </div>
             </div>
           ))}
         </div>
       </div>
     </Layout>
-  );
+  )
 }
