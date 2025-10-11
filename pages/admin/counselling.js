@@ -1,5 +1,4 @@
-// pages/admin/counselling.js
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import dynamic from "next/dynamic";
 import Layout from "../../components/Layout";
 import { auth, db, storage } from "../../lib/firebaseClient";
@@ -7,12 +6,12 @@ import { onAuthStateChanged, getIdTokenResult } from "firebase/auth";
 import {
   collection,
   addDoc,
-  query,
-  orderBy,
   getDocs,
-  serverTimestamp,
   deleteDoc,
   doc,
+  orderBy,
+  query,
+  serverTimestamp,
   updateDoc,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -20,19 +19,21 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 const ReactQuill = dynamic(() => import("react-quill"), { ssr: false });
 import "react-quill/dist/quill.snow.css";
 
-export default function AdminCounselling() {
+export default function CounsellingAdmin() {
   const [user, setUser] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [tabs, setTabs] = useState([]);
-
+  const [sections, setSections] = useState([]);
   const [title, setTitle] = useState("");
-  const [order, setOrder] = useState(100);
   const [content, setContent] = useState("");
   const [image, setImage] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const formRef = useRef(null);
 
+  // ✅ Use your actual Firestore collection
   const COLL = "counselling_tabs";
 
+  // 👤 Auth listener
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
@@ -41,32 +42,31 @@ export default function AdminCounselling() {
           const token = await getIdTokenResult(u);
           setIsAdmin(Boolean(token.claims?.admin));
         } catch (e) {
-          console.error("token error", e);
+          console.error("Token error:", e);
         }
-      } else {
-        setIsAdmin(false);
-      }
+      } else setIsAdmin(false);
       setLoading(false);
     });
     return () => unsub();
   }, []);
 
+  // 🔄 Load existing data
   useEffect(() => {
-    loadTabs();
+    loadSections();
   }, []);
 
-  async function loadTabs() {
+  async function loadSections() {
     try {
-      const q = query(collection(db, COLL), orderBy("order", "asc"));
+      const q = query(collection(db, COLL), orderBy("createdAt", "desc"));
       const snap = await getDocs(q);
-      setTabs(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      setSections(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     } catch (e) {
-      console.error("load counselling tabs:", e);
+      console.error("Load error:", e);
     }
   }
 
   async function handleAdd() {
-    if (!title.trim()) return alert("Enter a title");
+    if (!title.trim()) return alert("Please enter a title.");
     try {
       let imageUrl = "";
       if (image) {
@@ -79,43 +79,49 @@ export default function AdminCounselling() {
         title,
         content,
         imageUrl,
-        order: Number(order) || 100,
         createdAt: serverTimestamp(),
       });
 
       setTitle("");
       setContent("");
-      setOrder(100);
       setImage(null);
-      await loadTabs();
+      setShowForm(false);
+      await loadSections();
     } catch (e) {
-      console.error("add error:", e);
-      alert("Failed to add tab — check console.");
+      console.error("Add error:", e);
+      alert("Failed to add section — check console.");
     }
   }
 
   async function handleDelete(id) {
-    if (!confirm("Delete this tab?")) return;
+    if (!confirm("Delete this entry?")) return;
     try {
       await deleteDoc(doc(db, COLL, id));
-      await loadTabs();
+      await loadSections();
     } catch (e) {
-      console.error("delete error:", e);
-      alert("Failed to delete.");
+      console.error("Delete error:", e);
     }
   }
 
-  async function handleChangeOrder(id) {
-    const newOrder = prompt("New order (number):");
-    if (!newOrder) return;
+  async function handleEdit(id, existing) {
+    const newTitle = prompt("Edit title:", existing.title);
+    if (!newTitle) return;
     try {
-      await updateDoc(doc(db, COLL, id), { order: Number(newOrder) });
-      await loadTabs();
+      await updateDoc(doc(db, COLL, id), { title: newTitle });
+      await loadSections();
     } catch (e) {
-      console.error("update order error:", e);
-      alert("Failed to update order.");
+      console.error("Edit error:", e);
     }
   }
+
+  const handleToggleForm = () => {
+    setShowForm(!showForm);
+    if (!showForm && formRef.current) {
+      setTimeout(() => {
+        formRef.current.scrollIntoView({ behavior: "smooth" });
+      }, 100);
+    }
+  };
 
   if (loading)
     return (
@@ -140,70 +146,75 @@ export default function AdminCounselling() {
 
   return (
     <Layout>
-      <div className="p-6">
-        <h1 className="text-2xl font-semibold mb-4">Counselling — Admin</h1>
+      <div className="p-6 space-y-6">
+        {/* Header */}
+        <div className="flex justify-between items-center">
+          <h1 className="text-2xl font-semibold">Counselling — Admin</h1>
+          <button
+            onClick={handleToggleForm}
+            className="px-4 py-2 bg-qehBlue text-white rounded hover:opacity-90"
+          >
+            {showForm ? "Cancel" : "New Update"}
+          </button>
+        </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow mb-6">
-          <input
-            className="border rounded p-2 w-full mb-2"
-            placeholder="Tab Title (e.g. Anterior Resection)"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-
-          <div className="flex gap-2 mb-2">
+        {/* New Form */}
+        {showForm && (
+          <div
+            ref={formRef}
+            className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow space-y-3"
+          >
             <input
-              className="border rounded p-2 w-32"
-              placeholder="Order"
-              type="number"
-              value={order}
-              onChange={(e) => setOrder(e.target.value)}
+              className="border rounded p-2 w-full"
+              placeholder="Section Title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
             />
+            <ReactQuill theme="snow" value={content} onChange={setContent} />
             <input
               type="file"
               accept="image/*"
               onChange={(e) => setImage(e.target.files[0])}
-              className="flex-1"
             />
+            <button
+              onClick={handleAdd}
+              className="px-4 py-2 bg-qehBlue text-white rounded hover:opacity-90"
+            >
+              Save Section
+            </button>
           </div>
+        )}
 
-          <div className="mb-3">
-            <ReactQuill theme="snow" value={content} onChange={setContent} />
-          </div>
-
-          <button
-            onClick={handleAdd}
-            className="px-4 py-2 bg-qehBlue text-white rounded hover:opacity-90"
-          >
-            Add Tab
-          </button>
-        </div>
-
-        <h2 className="text-lg font-semibold mb-2">Existing Tabs</h2>
+        {/* Display Existing */}
         <div className="space-y-3">
-          {tabs.map((t) => (
+          {sections.map((s) => (
             <div
-              key={t.id}
-              className="bg-white dark:bg-gray-700 p-3 rounded flex items-start justify-between"
+              key={s.id}
+              className="bg-white dark:bg-gray-700 p-4 rounded-lg flex justify-between items-center"
             >
               <div>
-                <div className="font-medium">
-                  {t.title} <span className="text-sm text-gray-500">#{t.order}</span>
-                </div>
-                <div className="text-sm text-gray-500">
-                  {t.createdAt?.toDate ? new Date(t.createdAt.toDate()).toLocaleString() : ""}
-                </div>
+                <h2 className="font-semibold">{s.title}</h2>
+                <div
+                  className="text-sm text-gray-400"
+                  dangerouslySetInnerHTML={{ __html: s.content }}
+                />
+                {s.imageUrl && (
+                  <img
+                    src={s.imageUrl}
+                    alt={s.title}
+                    className="mt-2 w-32 h-32 object-cover rounded"
+                  />
+                )}
               </div>
-
               <div className="flex gap-2">
                 <button
-                  onClick={() => handleChangeOrder(t.id)}
+                  onClick={() => handleEdit(s.id, s)}
                   className="px-3 py-1 bg-yellow-500 text-white rounded"
                 >
-                  Change order
+                  Edit
                 </button>
                 <button
-                  onClick={() => handleDelete(t.id)}
+                  onClick={() => handleDelete(s.id)}
                   className="px-3 py-1 bg-red-600 text-white rounded"
                 >
                   Delete

@@ -8,11 +8,26 @@ import { db } from '../lib/firebaseClient'
 const fetcher = async () => {
   const q = query(collection(db, 'clinic_updates'), orderBy('date', 'desc'))
   const snap = await getDocs(q)
-  return snap.docs.map((d) => ({
-    id: d.id,
-    ...d.data(),
-    date: d.data().date?.seconds ? new Date(d.data().date.seconds * 1000) : new Date(),
-  }))
+
+  return snap.docs.map((d) => {
+    const data = d.data()
+    let parsedDate
+
+    // 🧠 Handle Firestore Timestamp or string date fallback
+    if (data.date?.seconds) {
+      parsedDate = new Date(data.date.seconds * 1000)
+    } else if (typeof data.date === 'string') {
+      parsedDate = new Date(data.date)
+    } else {
+      parsedDate = new Date() // fallback
+    }
+
+    return {
+      id: d.id,
+      ...data,
+      date: parsedDate,
+    }
+  })
 }
 
 export default function ClinicUpdates() {
@@ -22,7 +37,7 @@ export default function ClinicUpdates() {
   const [activeCategory, setActiveCategory] = useState('MDT')
   const [activeDate, setActiveDate] = useState(null)
 
-  // 🧠 Group by category
+  // Group by category
   const groupedByCategory = useMemo(() => {
     const catMap = {}
     for (const u of updates) {
@@ -33,12 +48,12 @@ export default function ClinicUpdates() {
     return catMap
   }, [updates])
 
-  // 🧠 Group the active category updates by date
+  // Group the active category updates by date
   const groupedByDate = useMemo(() => {
     const list = groupedByCategory[activeCategory] || []
     const dateMap = {}
     for (const item of list) {
-      const dateStr = item.date.toLocaleDateString()
+      const dateStr = item.date ? item.date.toLocaleDateString() : 'Undated'
       if (!dateMap[dateStr]) dateMap[dateStr] = []
       dateMap[dateStr].push(item)
     }
@@ -99,7 +114,7 @@ export default function ClinicUpdates() {
           </div>
         )}
 
-        {/* Updates for selected date */}
+        {/* Updates */}
         <div className="mt-4 space-y-4">
           {groupedByDate[selectedDate]?.length ? (
             groupedByDate[selectedDate].map((u) => (

@@ -1,236 +1,241 @@
-'use client'
-import { useEffect, useState } from 'react'
-import Layout from '../../components/Layout'
-import { auth, db, storage } from '../../lib/firebaseClient'
-import {
-  onAuthStateChanged,
-  getIdTokenResult,
-  signInWithPopup,
-  GoogleAuthProvider,
-} from 'firebase/auth'
+import React, { useEffect, useState } from "react";
+import Layout from "../../components/Layout";
+import { auth, db, storage } from "../../lib/firebaseClient";
+import { onAuthStateChanged, getIdTokenResult } from "firebase/auth";
 import {
   collection,
   addDoc,
-  query,
-  orderBy,
   getDocs,
   deleteDoc,
   doc,
+  orderBy,
+  query,
   serverTimestamp,
-} from 'firebase/firestore'
-import {
-  ref,
-  uploadBytes,
-  getDownloadURL,
-} from 'firebase/storage'
+  updateDoc,
+} from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 export default function ClinicUpdatesAdmin() {
-  const [user, setUser] = useState(null)
-  const [isAdmin, setIsAdmin] = useState(false)
-  const [updates, setUpdates] = useState([])
-  const [title, setTitle] = useState('')
-  const [body, setBody] = useState('')
-  const [category, setCategory] = useState('MDT')
-  const [imageFile, setImageFile] = useState(null)
-  const [loading, setLoading] = useState(false)
+  const [user, setUser] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [entries, setEntries] = useState([]);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [category, setCategory] = useState("MDT");
+  const [imageFile, setImageFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [showForm, setShowForm] = useState(false);
 
-  const provider = new GoogleAuthProvider()
+  const COLL = "clinic_updates";
 
   // 👤 Auth check
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u)
+      setUser(u);
       if (u) {
-        const token = await getIdTokenResult(u)
-        setIsAdmin(Boolean(token.claims?.admin))
-      } else setIsAdmin(false)
-    })
-    return () => unsub()
-  }, [])
+        const token = await getIdTokenResult(u);
+        setIsAdmin(Boolean(token.claims?.admin));
+      } else {
+        setIsAdmin(false);
+      }
+      setLoading(false);
+    });
+    return () => unsub();
+  }, []);
 
-  // 🔄 Fetch updates
+  // 🔄 Load data
   useEffect(() => {
-    if (isAdmin) fetchUpdates()
-  }, [isAdmin])
+    loadEntries();
+  }, []);
 
-  async function fetchUpdates() {
-    const q = query(collection(db, 'clinic_updates'), orderBy('date', 'desc'))
-    const snap = await getDocs(q)
-    setUpdates(
-      snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-        date: d.data().date?.seconds
-          ? new Date(d.data().date.seconds * 1000)
-          : new Date(),
-      }))
-    )
+  async function loadEntries() {
+    const q = query(collection(db, COLL), orderBy("createdAt", "desc"));
+    const snap = await getDocs(q);
+    setEntries(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
   }
 
-  async function handleLogin() {
-    try {
-      await signInWithPopup(auth, provider)
-      window.location.reload()
-    } catch (e) {
-      console.error('Login failed:', e)
-      alert('Login failed — check console for details.')
-    }
-  }
-
+  // ➕ Add new entry
   async function handleAdd() {
-    if (!title.trim()) return alert('Please enter a title.')
-    setLoading(true)
+    if (!title.trim()) return alert("Please enter a title");
     try {
-      let imageUrl = null
+      setUploading(true);
+      let imageUrl = "";
       if (imageFile) {
-        const imgRef = ref(storage, `clinic_updates/${Date.now()}-${imageFile.name}`)
-        await uploadBytes(imgRef, imageFile)
-        imageUrl = await getDownloadURL(imgRef)
+        const imgRef = ref(storage, `clinic/${Date.now()}_${imageFile.name}`);
+        await uploadBytes(imgRef, imageFile);
+        imageUrl = await getDownloadURL(imgRef);
       }
 
-      await addDoc(collection(db, 'clinic_updates'), {
+      await addDoc(collection(db, COLL), {
         title,
         body,
         category,
-        date: serverTimestamp(),
         imageUrl,
-      })
+        createdAt: serverTimestamp(),
+      });
 
-      setTitle('')
-      setBody('')
-      setImageFile(null)
-      setCategory('MDT')
-      fetchUpdates()
-      alert('✅ Update added successfully!')
-    } catch (e) {
-      console.error('Error adding update:', e)
-      alert('❌ Failed to add update — see console.')
+      setTitle("");
+      setBody("");
+      setCategory("MDT");
+      setImageFile(null);
+      setShowForm(false);
+      await loadEntries();
+    } catch (err) {
+      console.error("Add error:", err);
+      alert("Failed to add entry.");
     } finally {
-      setLoading(false)
+      setUploading(false);
     }
   }
 
-  async function handleDelete(id) {
-    if (!confirm('Delete this update?')) return
-    try {
-      await deleteDoc(doc(db, 'clinic_updates', id))
-      setUpdates(updates.filter((u) => u.id !== id))
-    } catch (e) {
-      console.error('Delete failed:', e)
-      alert('Failed to delete — see console.')
-    }
+  // ✏️ Edit entry
+  async function handleEdit(id, existing) {
+    const newTitle = prompt("Edit title:", existing.title);
+    if (!newTitle) return;
+    await updateDoc(doc(db, COLL, id), { title: newTitle });
+    await loadEntries();
   }
+
+  // ❌ Delete entry
+  async function handleDelete(id) {
+    if (!confirm("Delete this entry?")) return;
+    await deleteDoc(doc(db, COLL, id));
+    await loadEntries();
+  }
+
+  // 🕒 UI states
+  if (loading)
+    return (
+      <Layout>
+        <div className="p-6">Loading...</div>
+      </Layout>
+    );
 
   if (!user)
     return (
       <Layout>
-        <div className="text-center py-16">
-          <h2 className="text-2xl font-semibold mb-4">Please Sign In</h2>
-          <button
-            onClick={handleLogin}
-            className="bg-qehBlue text-white px-4 py-2 rounded hover:bg-qehNavy transition"
-          >
-            Sign in with Google
-          </button>
-        </div>
+        <div className="p-6">Please sign in to access admin pages.</div>
       </Layout>
-    )
+    );
 
   if (!isAdmin)
     return (
       <Layout>
-        <div className="text-center py-16 text-red-500">
-          You do not have permission to access this page.
-        </div>
+        <div className="p-6">Access denied — admin only.</div>
       </Layout>
-    )
+    );
 
+  // 🧱 Render
   return (
     <Layout>
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-        <h1 className="text-2xl font-bold text-qehNavy dark:text-white mb-4">
-          Manage Clinic Updates
-        </h1>
-
-        {/* Add New Update */}
-        <div className="grid gap-4 mb-8">
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Title"
-            className="p-2 border rounded w-full dark:bg-gray-700 dark:text-white"
-          />
-          <textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            placeholder="Details..."
-            rows="3"
-            className="p-2 border rounded w-full dark:bg-gray-700 dark:text-white"
-          />
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="p-2 border rounded w-full dark:bg-gray-700 dark:text-white"
-          >
-            <option>MDT</option>
-            <option>Scan</option>
-            <option>Social Welfare</option>
-            <option>Case Discussion</option>
-          </select>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => setImageFile(e.target.files[0])}
-            className="p-2 border rounded w-full"
-          />
+      <div className="p-6 space-y-6">
+        {/* Header with Toggle */}
+        <div className="flex justify-between items-center">
+          <h1 className="text-2xl font-bold text-qehNavy dark:text-white">
+            Clinic Updates — Admin
+          </h1>
           <button
-            onClick={handleAdd}
-            disabled={loading}
+            onClick={() => setShowForm(!showForm)}
             className="bg-qehBlue text-white px-4 py-2 rounded hover:bg-qehNavy transition"
           >
-            {loading ? 'Uploading...' : 'Add Update'}
+            {showForm ? "Cancel" : "New Update"}
           </button>
         </div>
 
-        {/* Existing Updates */}
-        <div className="space-y-4">
-          {updates.map((u) => (
-            <div
-              key={u.id}
-              className="p-4 border rounded bg-gray-50 dark:bg-gray-700"
+        {/* Add New Update Form */}
+        {showForm && (
+          <div className="grid gap-4 mb-8 bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+            <h2 className="font-semibold text-lg mb-2">Add New Update</h2>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Title"
+              className="p-2 border rounded w-full dark:bg-gray-700 dark:text-white"
+            />
+            <textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              placeholder="Body"
+              rows="3"
+              className="p-2 border rounded w-full dark:bg-gray-700 dark:text-white"
+            />
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="p-2 border rounded w-full dark:bg-gray-700 dark:text-white"
             >
-              <div className="flex justify-between items-start">
-                <div>
-                  <div className="font-semibold text-qehNavy dark:text-white">
-                    {u.title}
-                  </div>
-                  <div className="text-sm text-gray-600 dark:text-gray-300">
-                    {u.category} • {u.date.toLocaleDateString()}
-                  </div>
-                </div>
+              <option>MDT</option>
+              <option>Scan</option>
+              <option>Social Welfare</option>
+              <option>Case Discussion</option>
+            </select>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => setImageFile(e.target.files[0])}
+              className="p-2 border rounded w-full"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={handleAdd}
+                disabled={uploading}
+                className="bg-qehBlue text-white px-4 py-2 rounded hover:bg-qehNavy transition"
+              >
+                {uploading ? "Uploading..." : "Add Entry"}
+              </button>
+              <button
+                onClick={() => setShowForm(false)}
+                className="bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500 transition"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Existing Entries */}
+        <div className="space-y-3">
+          {entries.map((entry) => (
+            <div
+              key={entry.id}
+              className="bg-white dark:bg-gray-700 p-4 rounded-lg flex justify-between items-start"
+            >
+              <div>
+                <h2 className="font-semibold">{entry.title}</h2>
+                <p className="text-sm text-gray-500">
+                  {entry.category} •{" "}
+                  {entry.createdAt
+                    ? new Date(entry.createdAt.seconds * 1000).toLocaleString()
+                    : "Pending..."}
+                </p>
+                <p className="mt-2">{entry.body}</p>
+                {entry.imageUrl && (
+                  <img
+                    src={entry.imageUrl}
+                    alt={entry.title}
+                    className="mt-2 w-32 h-32 object-cover rounded"
+                  />
+                )}
+              </div>
+              <div className="flex gap-2">
                 <button
-                  onClick={() => handleDelete(u.id)}
-                  className="text-red-500 hover:text-red-700 text-sm"
+                  onClick={() => handleEdit(entry.id, entry)}
+                  className="px-3 py-1 bg-yellow-500 text-white rounded"
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() => handleDelete(entry.id)}
+                  className="px-3 py-1 bg-red-600 text-white rounded"
                 >
                   Delete
                 </button>
               </div>
-              {u.body && (
-                <div className="mt-2 text-gray-700 dark:text-gray-200">
-                  {u.body}
-                </div>
-              )}
-              {u.imageUrl && (
-                <img
-                  src={u.imageUrl}
-                  alt=""
-                  className="w-24 h-24 mt-2 object-cover rounded"
-                />
-              )}
             </div>
           ))}
         </div>
       </div>
     </Layout>
-  )
+  );
 }

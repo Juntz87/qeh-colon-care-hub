@@ -1,5 +1,5 @@
 // pages/admin/patients.js
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import dynamic from "next/dynamic";
 import Layout from "../../components/Layout";
 import { auth, db, storage } from "../../lib/firebaseClient";
@@ -17,7 +17,6 @@ import {
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
-// ✅ Properly import ReactQuill dynamically
 const ReactQuill = dynamic(() => import("react-quill"), { ssr: false });
 import "react-quill/dist/quill.snow.css";
 
@@ -30,6 +29,8 @@ export default function AdminPatients() {
   const [order, setOrder] = useState(100);
   const [content, setContent] = useState("");
   const [image, setImage] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const formRef = useRef(null);
   const COLL = "patients_tabs";
 
   useEffect(() => {
@@ -86,6 +87,7 @@ export default function AdminPatients() {
       setContent("");
       setOrder(100);
       setImage(null);
+      setShowForm(false);
       await loadTabs();
     } catch (e) {
       console.error("add error:", e);
@@ -114,6 +116,15 @@ export default function AdminPatients() {
     }
   }
 
+  const handleToggleForm = () => {
+    setShowForm(!showForm);
+    if (!showForm && formRef.current) {
+      setTimeout(() => {
+        formRef.current.scrollIntoView({ behavior: "smooth" });
+      }, 100);
+    }
+  };
+
   if (loading)
     return (
       <Layout>
@@ -138,44 +149,53 @@ export default function AdminPatients() {
   return (
     <Layout>
       <div className="p-6">
-        <h1 className="text-2xl font-semibold mb-4">Patients — Admin</h1>
-
-        {/* Add form */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow mb-6">
-          <input
-            className="border rounded p-2 w-full mb-2"
-            placeholder="Tab Title (e.g. Chemotherapy)"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-
-          <div className="flex gap-2 mb-2">
-            <input
-              className="border rounded p-2 w-32"
-              placeholder="Order"
-              type="number"
-              value={order}
-              onChange={(e) => setOrder(e.target.value)}
-            />
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => setImage(e.target.files[0])}
-              className="flex-1"
-            />
-          </div>
-
-          <div className="mb-3">
-            <ReactQuill theme="snow" value={content} onChange={setContent} />
-          </div>
-
+        <div className="flex justify-between items-center mb-4">
+          <h1 className="text-2xl font-semibold">Patients — Admin</h1>
           <button
-            onClick={handleAdd}
+            onClick={handleToggleForm}
             className="px-4 py-2 bg-qehBlue text-white rounded hover:opacity-90"
           >
-            Add Tab
+            {showForm ? "Cancel" : "New Update"}
           </button>
         </div>
+
+        {showForm && (
+          <div ref={formRef} className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow mb-6">
+            <input
+              className="border rounded p-2 w-full mb-2"
+              placeholder="Tab Title (e.g. Chemotherapy)"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+
+            <div className="flex gap-2 mb-2">
+              <input
+                className="border rounded p-2 w-32"
+                placeholder="Order"
+                type="number"
+                value={order}
+                onChange={(e) => setOrder(e.target.value)}
+              />
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => setImage(e.target.files[0])}
+                className="flex-1"
+              />
+            </div>
+
+            <div className="mb-3">
+              <ReactQuill theme="snow" value={content} onChange={setContent} />
+            </div>
+
+            <button
+              onClick={handleAdd}
+              className="px-4 py-2 bg-qehBlue text-white rounded hover:opacity-90"
+            >
+              Add Tab
+            </button>
+          </div>
+        )}
 
         {/* Existing tabs */}
         <h2 className="text-lg font-semibold mb-2">Existing Tabs</h2>

@@ -1,92 +1,86 @@
-// pages/counselling.js
-import React, { useEffect, useState } from "react";
-import Layout from "../components/Layout";
-import { db } from "../lib/firebaseClient";
-import { collection, getDocs, query, orderBy } from "firebase/firestore";
+'use client'
+import { useEffect, useState } from 'react'
+import Layout from '../components/Layout'
+import { motion } from 'framer-motion'
+import { db } from '../lib/firebaseClient'
+import { collection, getDocs, query, orderBy } from 'firebase/firestore'
 
 export default function Counselling() {
-  const [tabs, setTabs] = useState([]);
-  const [active, setActive] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [tabs, setTabs] = useState([])
+  const [activeTab, setActiveTab] = useState(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    async function load() {
+    async function fetchTabs() {
       try {
-        // ✅ Fetch live data from Firestore
-        const q = query(collection(db, "counselling_tabs"), orderBy("order", "asc"));
-        const snap = await getDocs(q);
-        const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-
-        // ✅ Fallback sort (in case order is missing)
-        data.sort((a, b) => (a.order || 9999) - (b.order || 9999));
-
-        setTabs(data);
-        setActive(0);
-      } catch (e) {
-        console.error("Error loading counselling tabs:", e);
+        const q = query(collection(db, 'counselling_tabs'), orderBy('order', 'asc'))
+        const snap = await getDocs(q)
+        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        setTabs(data)
+        setActiveTab(data[0]?.id || null)
+      } catch (err) {
+        console.error('Error fetching counselling tabs:', err)
       } finally {
-        setLoading(false);
+        setLoading(false)
       }
     }
-    load();
-  }, []);
+    fetchTabs()
+  }, [])
+
+  const active = tabs.find(t => t.id === activeTab)
 
   return (
     <Layout>
-      <div className="p-6">
-        <h1 className="text-2xl font-bold text-qehNavy dark:text-white mb-4">
-          Counselling
-        </h1>
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+        className="max-w-4xl mx-auto bg-white dark:bg-gray-800 rounded-lg shadow p-6"
+      >
+        <h1 className="text-2xl font-semibold mb-4">Counselling</h1>
 
-        {loading && <div className="text-gray-500">Loading...</div>}
-
-        {!loading && tabs.length === 0 && (
-          <div className="text-gray-600">No counselling content available.</div>
-        )}
-
-        {!loading && tabs.length > 0 && (
-          <div className="mt-4">
-            {/* Tabs header */}
-            <div className="flex gap-2 overflow-x-auto pb-2">
-              {tabs.map((t, i) => (
+        {loading ? (
+          <div className="text-gray-500">Loading...</div>
+        ) : tabs.length === 0 ? (
+          <div className="text-gray-500">No counselling materials available yet.</div>
+        ) : (
+          <>
+            {/* Tabs */}
+            <div className="flex flex-wrap gap-2 mb-4">
+              {tabs.map(tab => (
                 <button
-                  key={t.id}
-                  onClick={() => setActive(i)}
-                  className={`px-3 py-2 rounded-md transition ${
-                    active === i
-                      ? "bg-qehBlue text-white shadow"
-                      : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200"
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`px-4 py-2 rounded-lg border transition-all ${
+                    activeTab === tab.id
+                      ? 'bg-qehBlue text-white border-qehBlue'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200'
                   }`}
                 >
-                  {t.title}
+                  {tab.title}
                 </button>
               ))}
             </div>
 
-            {/* Active Tab Content */}
-            <div className="mt-4 bg-white dark:bg-gray-800 rounded-lg shadow p-6 overflow-hidden border border-gray-200 dark:border-gray-700">
-              {tabs[active] && (
-                <>
-                  {tabs[active].imageUrl && (
-                    <img
-                      src={tabs[active].imageUrl}
-                      alt={tabs[active].title}
-                      className="w-full h-56 object-cover rounded mb-4"
-                    />
-                  )}
-                  <h2 className="text-xl font-semibold text-qehNavy dark:text-white mb-3">
-                    {tabs[active].title}
-                  </h2>
-                  <div
-                    className="prose max-w-none dark:prose-invert text-gray-700 dark:text-gray-300"
-                    dangerouslySetInnerHTML={{ __html: tabs[active].content || "" }}
+            {/* Active tab content */}
+            {active && (
+              <div className="mt-6">
+                {active.imageUrl && (
+                  <img
+                    src={active.imageUrl}
+                    alt={active.title}
+                    className="w-full max-h-96 object-contain rounded-lg mb-4"
                   />
-                </>
-              )}
-            </div>
-          </div>
+                )}
+                <div
+                  className="prose dark:prose-invert max-w-none"
+                  dangerouslySetInnerHTML={{ __html: active.content }}
+                />
+              </div>
+            )}
+          </>
         )}
-      </div>
+      </motion.div>
     </Layout>
-  );
+  )
 }
