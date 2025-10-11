@@ -54,9 +54,18 @@ export default function OfficersResourcesAdmin() {
   useEffect(() => {
     async function load() {
       try {
-        const q = query(collection(db, COLL), orderBy("createdAt", "desc"));
+        const q = query(collection(db, COLL));
         const snap = await getDocs(q);
-        setResources(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        data.sort((a, b) => {
+          const orderA = a.order ?? 9999;
+          const orderB = b.order ?? 9999;
+          if (orderA !== orderB) return orderA - orderB;
+          const dateA = a.createdAt?.seconds || 0;
+          const dateB = b.createdAt?.seconds || 0;
+          return dateB - dateA;
+        });
+        setResources(data);
       } catch (e) {
         console.error("Load error:", e);
       }
@@ -71,6 +80,7 @@ export default function OfficersResourcesAdmin() {
     return await getDownloadURL(storageRef);
   };
 
+  // 💾 Save or update
   const handleSave = async (e) => {
     e.preventDefault();
     try {
@@ -88,6 +98,7 @@ export default function OfficersResourcesAdmin() {
           title,
           content,
           imageUrl,
+          order: Date.now(), // ensures sorting consistency with old data
           createdAt: serverTimestamp(),
         });
       }
@@ -97,9 +108,22 @@ export default function OfficersResourcesAdmin() {
       setImage(null);
       setShowForm(false);
       setEditingId(null);
-      window.location.reload();
+
+      // Reload data
+      const snap = await getDocs(collection(db, COLL));
+      const updatedData = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      updatedData.sort((a, b) => {
+        const orderA = a.order ?? 9999;
+        const orderB = b.order ?? 9999;
+        if (orderA !== orderB) return orderA - orderB;
+        const dateA = a.createdAt?.seconds || 0;
+        const dateB = b.createdAt?.seconds || 0;
+        return dateB - dateA;
+      });
+      setResources(updatedData);
     } catch (e) {
       console.error("Error saving:", e);
+      alert("❌ Failed to save. Check console for details.");
     }
   };
 
@@ -118,7 +142,7 @@ export default function OfficersResourcesAdmin() {
 
   if (loading) return <Layout><div className="p-6">Loading...</div></Layout>;
 
-  if (!['master', 'officer'].includes(role)) {
+  if (!["master", "officer"].includes(role)) {
     return (
       <Layout>
         <div className="p-6 text-center text-gray-600 dark:text-gray-300">
@@ -155,6 +179,7 @@ export default function OfficersResourcesAdmin() {
           </button>
         </div>
 
+        {/* ✏️ Form */}
         {showForm && (
           <form
             onSubmit={handleSave}
@@ -183,6 +208,7 @@ export default function OfficersResourcesAdmin() {
           </form>
         )}
 
+        {/* 📜 Display List */}
         <div className="space-y-4 mt-6">
           {resources.map((r) => (
             <div

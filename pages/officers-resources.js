@@ -36,9 +36,20 @@ export default function OfficersResources() {
     async function load() {
       setLoadingTabs(true);
       try {
-        const q = query(collection(db, "officer_resources"), orderBy("order", "asc"));
-        const snap = await getDocs(q);
-        const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        const q = query(collection(db, "officer_resources"));
+const snap = await getDocs(q);
+const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+// 🔧 Sort manually: prefer 'order', fallback to 'createdAt'
+data.sort((a, b) => {
+  const orderA = a.order ?? 9999;
+  const orderB = b.order ?? 9999;
+  if (orderA !== orderB) return orderA - orderB;
+
+  const dateA = a.createdAt?.seconds || 0;
+  const dateB = b.createdAt?.seconds || 0;
+  return dateB - dateA;
+});
         data.sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
         setTabs(data);
         setActive(0);
