@@ -21,10 +21,8 @@ const fetcher = async () => {
       id: d.id,
       ...data,
       date: parsedDate,
-      category:
-        typeof data.category === 'string'
-          ? data.category.trim()
-          : 'Uncategorized',
+      category: data.category || 'Uncategorized',
+      referred: typeof data.referred === 'boolean' ? data.referred : false
     }
   })
 }
@@ -36,8 +34,8 @@ export default function ClinicUpdates() {
   const [activeCategory, setActiveCategory] = useState('MDT')
   const [activeDate, setActiveDate] = useState(null)
 
-  // Helper: make case-insensitive match
-  const normalize = (str = '') => str.toLowerCase().replace(/\s+/g, ' ').trim()
+  // 🧠 Helper to normalize case
+  const normalize = (s = '') => s.toLowerCase().trim()
 
   // Group by category
   const groupedByCategory = useMemo(() => {
@@ -70,6 +68,14 @@ export default function ClinicUpdates() {
   )
   const selectedDate = activeDate || dateTabs[0]
 
+  // ✅ Status Badge
+  const WelfareStatus = ({ referred }) =>
+    referred ? (
+      <span className="ml-2 text-green-600 text-sm">✅ Referred</span>
+    ) : (
+      <span className="ml-2 text-yellow-500 text-sm">⚠️ Pending</span>
+    )
+
   return (
     <Layout>
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
@@ -77,7 +83,7 @@ export default function ClinicUpdates() {
           Clinic Updates
         </h1>
         <p className="mt-2 text-gray-700 dark:text-gray-300">
-          Latest MDTs, upcoming scans, and welfare updates.
+          Latest MDTs, upcoming scans, and welfare follow-ups.
         </p>
 
         {/* Category Tabs */}
@@ -129,8 +135,11 @@ export default function ClinicUpdates() {
               >
                 <div className="flex justify-between items-start">
                   <div>
-                    <div className="font-semibold text-qehNavy dark:text-white">
+                    <div className="font-semibold text-qehNavy dark:text-white flex items-center">
                       {u.title}
+                      {normalize(u.category) === 'social welfare' && (
+                        <WelfareStatus referred={u.referred} />
+                      )}
                     </div>
                     <div className="text-sm text-gray-600 dark:text-gray-300">
                       {u.category} • {u.date.toLocaleTimeString()}
@@ -145,9 +154,10 @@ export default function ClinicUpdates() {
                   )}
                 </div>
                 {u.body && (
-                  <div className="mt-2 text-gray-700 dark:text-gray-200">
-                    {u.body}
-                  </div>
+                  <div
+                    className="mt-2 text-gray-700 dark:text-gray-200"
+                    dangerouslySetInnerHTML={{ __html: u.body }}
+                  />
                 )}
               </div>
             ))

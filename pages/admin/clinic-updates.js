@@ -24,13 +24,14 @@ export default function ClinicUpdatesAdmin() {
   const [body, setBody] = useState('')
   const [category, setCategory] = useState('MDT')
   const [image, setImage] = useState(null)
+  const [referred, setReferred] = useState(false)
   const [user, setUser] = useState(null)
   const [role, setRole] = useState(null)
   const [showForm, setShowForm] = useState(false)
-  const [loading, setLoading] = useState(true)
   const [editingId, setEditingId] = useState(null)
+  const [loading, setLoading] = useState(true)
 
-  // 🧠 Auth + Role
+  // 🔐 Authentication
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u)
@@ -45,23 +46,27 @@ export default function ClinicUpdatesAdmin() {
     return () => unsub()
   }, [])
 
-  // 🔄 Load all updates (no filtering by date)
+  // 📦 Fetch all updates
   useEffect(() => {
     const fetchUpdates = async () => {
       const snap = await getDocs(collection(db, 'clinic_updates'))
-      const data = snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-        date: d.data().date?.seconds
-          ? new Date(d.data().date.seconds * 1000)
+      const data = snap.docs.map((d) => {
+        const raw = d.data()
+        const dateObj = raw.date?.seconds
+          ? new Date(raw.date.seconds * 1000)
           : new Date()
-      }))
-      setUpdates(data.sort((a, b) => b.date - a.date)) // sort manually by date
+        return {
+          id: d.id,
+          ...raw,
+          date: dateObj,
+          referred: typeof raw.referred === 'boolean' ? raw.referred : false
+        }
+      })
+      setUpdates(data.sort((a, b) => b.date - a.date))
     }
     fetchUpdates()
   }, [])
 
-  // 🖼️ Image upload
   const handleImageUpload = async (file) => {
     if (!file) return null
     const storageRef = ref(storage, `clinic-updates/${file.name}`)
@@ -69,51 +74,55 @@ export default function ClinicUpdatesAdmin() {
     return await getDownloadURL(storageRef)
   }
 
-  // 💾 Add or Update
+  // 💾 Save entry
   const handleSave = async (e) => {
     e.preventDefault()
-    try {
-      const imageUrl = image ? await handleImageUpload(image) : null
-
-      if (editingId) {
-        await updateDoc(doc(db, 'clinic_updates', editingId), {
-          title,
-          body,
-          category,
-          ...(imageUrl && { imageUrl })
-        })
-      } else {
-        await addDoc(collection(db, 'clinic_updates'), {
-          title,
-          body,
-          category,
-          imageUrl,
-          date: serverTimestamp()
-        })
-      }
-
-      setTitle('')
-      setBody('')
-      setImage(null)
-      setCategory('MDT')
-      setShowForm(false)
-      setEditingId(null)
-      window.location.reload()
-    } catch (err) {
-      console.error('Error saving:', err)
+    const imageUrl = image ? await handleImageUpload(image) : null
+    const data = {
+      title,
+      body,
+      category,
+      referred: category === 'Social Welfare' ? referred : false,
+      imageUrl: imageUrl || null,
+      date: serverTimestamp()
     }
+
+    if (editingId) await updateDoc(doc(db, 'clinic_updates', editingId), data)
+    else await addDoc(collection(db, 'clinic_updates'), data)
+
+    setTitle('')
+    setBody('')
+    setImage(null)
+    setCategory('MDT')
+    setReferred(false)
+    setShowForm(false)
+    setEditingId(null)
+
+    const snap = await getDocs(collection(db, 'clinic_updates'))
+    const dataList = snap.docs.map((d) => {
+      const raw = d.data()
+      const dateObj = raw.date?.seconds
+        ? new Date(raw.date.seconds * 1000)
+        : new Date()
+      return {
+        id: d.id,
+        ...raw,
+        date: dateObj,
+        referred: typeof raw.referred === 'boolean' ? raw.referred : false
+      }
+    })
+    setUpdates(dataList.sort((a, b) => b.date - a.date))
   }
 
-  // ✏️ Edit
   const handleEdit = (u) => {
     setEditingId(u.id)
     setTitle(u.title || '')
     setBody(u.body || '')
     setCategory(u.category || 'MDT')
+    setReferred(u.referred || false)
     setShowForm(true)
   }
 
-  // ❌ Delete
   const handleDelete = async (id) => {
     if (!confirm('Delete this update?')) return
     await deleteDoc(doc(db, 'clinic_updates', id))
@@ -121,28 +130,15 @@ export default function ClinicUpdatesAdmin() {
   }
 
   if (loading) return <Layout>Loading...</Layout>
-
-  if (role === 'public') {
+  if (!['master', 'officer'].includes(role))
     return (
       <Layout>
-        <div className="text-center py-20 text-gray-600 dark:text-gray-300">
-          Please sign in to access admin pages.
+        <div className="text-center py-24 text-gray-600 dark:text-gray-300">
+          Access denied — master or officer role required.
         </div>
       </Layout>
     )
-  }
 
-  if (!['master', 'officer'].includes(role)) {
-    return (
-      <Layout>
-        <div className="text-center py-20 text-gray-600 dark:text-gray-300">
-          Access denied.
-        </div>
-      </Layout>
-    )
-  }
-
-  // ✅ UI
   return (
     <Layout>
       <div className="p-8">
@@ -159,6 +155,7 @@ export default function ClinicUpdatesAdmin() {
                 setBody('')
                 setCategory('MDT')
                 setImage(null)
+                setReferred(false)
               }
             }}
             className={`px-4 py-2 rounded text-white transition ${
@@ -190,10 +187,23 @@ export default function ClinicUpdatesAdmin() {
               className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white"
             >
               <option>MDT</option>
-              <option>SCAN</option>
-              <option>SOCIAL WELFARE</option>
-              <option>DISCUSSION</option>
+              <option>Scan</option>
+              <option>Social Welfare</option>
+              <option>Case Discussion</option>
             </select>
+
+            {/* ✅ Only show checkbox if category is Social Welfare */}
+            {category === 'Social Welfare' && (
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={referred}
+                  onChange={(e) => setReferred(e.target.checked)}
+                />
+                <span className="text-sm">Referred to Welfare</span>
+              </label>
+            )}
+
             <ReactQuill theme="snow" value={body} onChange={setBody} />
             <input
               type="file"
@@ -209,7 +219,6 @@ export default function ClinicUpdatesAdmin() {
           </form>
         )}
 
-        {/* 🗂️ Display Updates */}
         <div className="space-y-4 mt-6">
           {updates.map((u) => (
             <div
@@ -218,24 +227,22 @@ export default function ClinicUpdatesAdmin() {
             >
               <div className="flex justify-between items-start">
                 <div>
-                  <div className="font-semibold text-qehNavy dark:text-white">
-                    {u.title || 'Untitled'}
+                  <div className="font-semibold text-qehNavy dark:text-white flex items-center gap-2">
+                    {u.title}
+                    {u.category === 'Social Welfare' &&
+                      (u.referred ? (
+                        <span className="text-green-600">✅</span>
+                      ) : (
+                        <span className="text-yellow-500">⚠️ Pending</span>
+                      ))}
                   </div>
-                  <div className="text-sm text-gray-600 dark:text-gray-300">
-                    {u.category || 'General'} •{' '}
-                    {u.date?.toLocaleDateString?.() || 'No date'}
+                  <div className="text-sm text-gray-600 dark:text-gray-300 mt-1">
+                    {u.category} • {u.date?.toLocaleDateString?.()}
                   </div>
                   <div
                     className="mt-2 text-gray-700 dark:text-gray-200"
                     dangerouslySetInnerHTML={{ __html: u.body }}
                   />
-                  {u.imageUrl && (
-                    <img
-                      src={u.imageUrl}
-                      alt=""
-                      className="w-24 h-24 mt-2 object-cover rounded"
-                    />
-                  )}
                 </div>
 
                 <div className="flex gap-2">
