@@ -1,183 +1,167 @@
 'use client'
-import React, { useEffect, useState } from "react";
-import dynamic from "next/dynamic";
+
+import { useEffect, useState, useRef } from "react";
 import Layout from "../../components/Layout";
-import { auth, db, storage } from "../../lib/firebaseClient";
-import { onAuthStateChanged, getIdTokenResult } from "firebase/auth";
+import dynamic from "next/dynamic";
 import {
   collection,
   addDoc,
   getDocs,
   deleteDoc,
   doc,
+  updateDoc,
   orderBy,
   query,
   serverTimestamp,
-  updateDoc,
-  writeBatch,
 } from "firebase/firestore";
-import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
+import { db, storage, auth } from "../../lib/firebaseClient";
+import { onAuthStateChanged, getIdTokenResult } from "firebase/auth";
 
 const ReactQuill = dynamic(() => import("react-quill"), { ssr: false });
 import "react-quill/dist/quill.snow.css";
 
 export default function OfficersResourcesAdmin() {
-  const [user, setUser] = useState(null);
-  const [role, setRole] = useState("public");
-  const [loading, setLoading] = useState(true);
   const [resources, setResources] = useState([]);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [image, setImage] = useState(null);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const [imageUrl, setImageUrl] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [user, setUser] = useState(null);
+  const [role, setRole] = useState(null);
+  const formRef = useRef(null);
+
   const COLL = "officer_resources";
 
-  // 👤 Auth + Role
+  // 👤 Auth
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (u) {
         const token = await getIdTokenResult(u);
-        const r = token.claims?.role?.toLowerCase() || "public";
         setUser(u);
-        setRole(r);
+        setRole(token.claims?.role || "public");
       } else {
         setUser(null);
         setRole("public");
       }
-      setLoading(false);
     });
     return () => unsub();
   }, []);
 
-  // 🔄 Load existing resources
+  // 🔄 Load resources
   useEffect(() => {
     async function load() {
-      try {
-        const q = query(collection(db, COLL), orderBy("order", "asc"));
-        const snap = await getDocs(q);
-        setResources(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      } catch (e) {
-        console.error("Load error:", e);
-      }
+      const q = query(collection(db, COLL), orderBy("order", "asc"));
+      const snap = await getDocs(q);
+      setResources(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     }
     load();
   }, []);
 
-  // 🖼 Upload (with progress)
+  // 🖼️ Upload Image
   const handleImageUpload = async (file) => {
     if (!file) return null;
-    return new Promise((resolve, reject) => {
-      const storageRef = ref(storage, `${COLL}/${Date.now()}_${file.name}`);
-      const uploadTask = uploadBytesResumable(storageRef, file);
-      uploadTask.on(
-        "state_changed",
-        (snap) => {
-          const progress = (snap.bytesTransferred / snap.totalBytes) * 100;
-          setUploadProgress(progress.toFixed(0));
-        },
-        (error) => reject(error),
-        async () => {
-          const url = await getDownloadURL(uploadTask.snapshot.ref);
-          resolve(url);
-        }
-      );
-    });
+    const storageRef = ref(storage, `officers/${file.name}`);
+    await uploadBytes(storageRef, file);
+    return await getDownloadURL(storageRef);
   };
 
+  // 🗑️ Delete Image
+  const handleImageDelete = async (id, imageUrl) => {
+    try {
+      if (imageUrl) {
+        const imageRef = ref(storage, imageUrl);
+        await deleteObject(imageRef).catch(() => {});
+      }
+      await updateDoc(doc(db, COLL, id), {
+        imageUrl: null,
+        updatedAt: serverTimestamp(),
+      });
+      setResources(resources.map((r) => (r.id === id ? { ...r, imageUrl: null } : r)));
+      setImageUrl(null);
+    } catch (e) {
+      console.error("Error deleting image:", e);
+    }
+  };
+
+  // 💾 Save / Update
   const handleSave = async (e) => {
     e.preventDefault();
     try {
-      let imageUrl = null;
-      if (image) imageUrl = await handleImageUpload(image);
+      const uploadedUrl = image ? await handleImageUpload(image) : imageUrl || null;
+      let newOrder = resources.length + 1;
 
       if (editingId) {
         await updateDoc(doc(db, COLL, editingId), {
           title,
           content,
-          ...(imageUrl && { imageUrl }),
+          imageUrl: uploadedUrl,
           updatedAt: serverTimestamp(),
         });
       } else {
         await addDoc(collection(db, COLL), {
           title,
           content,
-          imageUrl,
+          imageUrl: uploadedUrl,
+          order: newOrder,
           createdAt: serverTimestamp(),
-          createdBy: user?.uid || "unknown",
-          order: resources.length,
         });
       }
 
       setTitle("");
       setContent("");
       setImage(null);
-      setShowForm(false);
+      setImageUrl(null);
       setEditingId(null);
-      setUploadProgress(0);
+      setShowForm(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
       window.location.reload();
     } catch (e) {
       console.error("Error saving:", e);
     }
   };
 
+  // ✏️ Edit
   const handleEdit = (r) => {
     setEditingId(r.id);
     setTitle(r.title);
     setContent(r.content);
+    setImageUrl(r.imageUrl || null);
     setShowForm(true);
+    setTimeout(() => {
+      formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 200);
   };
 
+  // ❌ Delete
   const handleDelete = async (id) => {
     if (!confirm("Delete this entry?")) return;
     await deleteDoc(doc(db, COLL, id));
     setResources(resources.filter((r) => r.id !== id));
   };
 
-  // 🔼🔽 Reorder controls
-  const swap = (arr, i, j) => {
-    const copy = [...arr];
-    const temp = copy[i];
-    copy[i] = copy[j];
-    copy[j] = temp;
-    return copy;
-  };
+  // ⬆⬇ Reorder
+  const moveItem = async (index, direction) => {
+    const newIndex = direction === "up" ? index - 1 : index + 1;
+    if (newIndex < 0 || newIndex >= resources.length) return;
 
-  const handleMoveUp = (index) => {
-    if (index === 0) return;
-    const reordered = swap(resources, index, index - 1);
-    setResources(reordered);
-  };
+    const updatedResources = [...resources];
+    const temp = updatedResources[index];
+    updatedResources[index] = updatedResources[newIndex];
+    updatedResources[newIndex] = temp;
 
-  const handleMoveDown = (index) => {
-    if (index === resources.length - 1) return;
-    const reordered = swap(resources, index, index + 1);
-    setResources(reordered);
-  };
-
-  const handleSaveOrder = async () => {
-    try {
-      const batch = writeBatch(db);
-      resources.forEach((r, idx) => {
-        const refDoc = doc(db, COLL, r.id);
-        batch.update(refDoc, { order: idx });
-      });
-      await batch.commit();
-      alert("Order saved successfully!");
-    } catch (e) {
-      console.error("Order save error:", e);
-    }
-  };
-
-  if (loading)
-    return (
-      <Layout>
-        <div className="p-6">Loading...</div>
-      </Layout>
+    // Update Firestore order
+    await Promise.all(
+      updatedResources.map((item, i) =>
+        updateDoc(doc(db, COLL, item.id), { order: i + 1 })
+      )
     );
+    setResources(updatedResources);
+  };
 
-  if (!["master", "officer"].includes(role)) {
+  if (!["master", "officer"].includes(role))
     return (
       <Layout>
         <div className="p-6 text-center text-gray-600 dark:text-gray-300">
@@ -185,25 +169,16 @@ export default function OfficersResourcesAdmin() {
         </div>
       </Layout>
     );
-  }
 
   return (
     <Layout>
-      <div className="p-6 space-y-6">
+      <div className="p-6 space-y-6" ref={formRef}>
         <div className="flex justify-between items-center">
           <h1 className="text-2xl font-semibold text-qehNavy dark:text-white">
             Officers Resources <span className="text-gray-400 text-lg">(Admin)</span>
           </h1>
           <button
-            onClick={() => {
-              setShowForm(!showForm);
-              if (showForm) {
-                setEditingId(null);
-                setTitle("");
-                setContent("");
-                setImage(null);
-              }
-            }}
+            onClick={() => setShowForm(!showForm)}
             className={`px-4 py-2 rounded text-white transition ${
               showForm
                 ? "bg-gray-500 hover:bg-gray-600"
@@ -233,107 +208,85 @@ export default function OfficersResourcesAdmin() {
               onChange={(e) => setImage(e.target.files[0])}
               accept="image/*"
             />
-            {uploadProgress > 0 && (
-              <div className="text-sm text-gray-600 dark:text-gray-300">
-                Uploading... {uploadProgress}%
+            {imageUrl && (
+              <div className="relative mt-2">
+                <img
+                  src={imageUrl}
+                  alt=""
+                  className="w-32 h-32 object-cover rounded"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleImageDelete(editingId, imageUrl)}
+                  className="absolute top-1 right-1 bg-red-500 text-white rounded-full px-2 text-xs"
+                >
+                  ✕
+                </button>
               </div>
             )}
             <button
               type="submit"
-              className="px-4 py-2 bg-qehBlue hover:bg-qehNavy text-white rounded transition duration-200"
+              className="px-4 py-2 bg-qehBlue hover:bg-qehNavy text-white rounded"
             >
               {editingId ? "Update Entry" : "Submit Update"}
             </button>
           </form>
         )}
 
-        {/* 🔽 Ordered list with move + save controls */}
-        <div className="mt-6">
-          <div className="flex justify-end mb-3">
-            <button
-              onClick={handleSaveOrder}
-              className="px-3 py-1 bg-qehBlue text-white rounded hover:bg-qehNavy"
+        <div className="space-y-4 mt-6">
+          {resources.map((r, index) => (
+            <div
+              key={r.id}
+              className="p-4 border rounded bg-gray-50 dark:bg-gray-700 shadow-sm flex justify-between"
             >
-              Save Order
-            </button>
-          </div>
-
-          <div className="space-y-4">
-            {resources.map((r, index) => (
-              <div
-                key={r.id}
-                className="p-4 border rounded bg-gray-50 dark:bg-gray-700 shadow-sm"
-              >
-                <div className="flex justify-between items-start">
-                  <div className="flex-1">
-                    <div className="font-semibold text-qehNavy dark:text-white">
-                      {r.title || "Untitled"}
-                    </div>
-                    <div
-                      className="mt-2 text-gray-700 dark:text-gray-200"
-                      dangerouslySetInnerHTML={{ __html: r.content }}
+              <div>
+                <h3 className="font-semibold text-qehNavy dark:text-white">{r.title}</h3>
+                <div
+                  className="mt-2 text-gray-700 dark:text-gray-200"
+                  dangerouslySetInnerHTML={{ __html: r.content }}
+                />
+                {r.imageUrl && (
+                  <a href={r.imageUrl} target="_blank" rel="noopener noreferrer">
+                    <img
+                      src={r.imageUrl}
+                      alt=""
+                      className="w-24 h-24 mt-2 object-cover rounded hover:scale-105 transition-transform cursor-pointer"
                     />
-                    {r.imageUrl && (
-                      <a
-                        href={r.imageUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <img
-                          src={r.imageUrl}
-                          alt=""
-                          className="w-full max-w-md mt-2 rounded-lg object-cover shadow-md transition-transform hover:scale-[1.02]"
-                          style={{ aspectRatio: "16/9" }}
-                        />
-                      </a>
-                    )}
-                  </div>
-
-                  <div className="flex flex-col gap-2 items-end">
-                    <div className="text-sm text-gray-400">#{index + 1}</div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleMoveUp(index)}
-                        disabled={index === 0}
-                        className={`px-2 py-1 rounded ${
-                          index === 0
-                            ? "bg-gray-300 text-gray-600"
-                            : "bg-white/10 text-black dark:text-white hover:bg-gray-200"
-                        }`}
-                      >
-                        ↑
-                      </button>
-                      <button
-                        onClick={() => handleMoveDown(index)}
-                        disabled={index === resources.length - 1}
-                        className={`px-2 py-1 rounded ${
-                          index === resources.length - 1
-                            ? "bg-gray-300 text-gray-600"
-                            : "bg-white/10 text-black dark:text-white hover:bg-gray-200"
-                        }`}
-                      >
-                        ↓
-                      </button>
-                    </div>
-                    <div className="flex gap-2 mt-2">
-                      <button
-                        onClick={() => handleEdit(r)}
-                        className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 text-sm"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDelete(r.id)}
-                        className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 text-sm"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
+                  </a>
+                )}
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2 items-center justify-end">
+                <div className="flex flex-col">
+                  <button
+                    onClick={() => moveItem(index, "up")}
+                    className="bg-gray-300 hover:bg-gray-400 text-gray-800 text-xs rounded px-2 py-1 mb-1"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    onClick={() => moveItem(index, "down")}
+                    className="bg-gray-300 hover:bg-gray-400 text-gray-800 text-xs rounded px-2 py-1"
+                  >
+                    ↓
+                  </button>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleEdit(r)}
+                    className="bg-yellow-500 hover:bg-yellow-600 text-white text-sm font-medium px-4 py-2 rounded-md shadow-md transition duration-200 w-20 sm:w-auto"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => handleDelete(r.id)}
+                    className="bg-red-500 hover:bg-red-600 text-white text-sm font-medium px-4 py-2 rounded-md shadow-md transition duration-200 w-20 sm:w-auto"
+                  >
+                    Delete
+                  </button>
                 </div>
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
         </div>
       </div>
     </Layout>

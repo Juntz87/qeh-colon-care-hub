@@ -1,7 +1,8 @@
 'use client'
-import { useEffect, useState } from 'react'
-import Layout from '../../components/Layout'
-import dynamic from 'next/dynamic'
+
+import { useEffect, useState, useRef } from "react";
+import Layout from "../../components/Layout";
+import dynamic from "next/dynamic";
 import {
   collection,
   addDoc,
@@ -9,166 +10,161 @@ import {
   deleteDoc,
   doc,
   updateDoc,
-  serverTimestamp
-} from 'firebase/firestore'
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
-import { db, storage, auth } from '../../lib/firebaseClient'
-import { onAuthStateChanged, getIdTokenResult } from 'firebase/auth'
+  orderBy,
+  query,
+  serverTimestamp,
+} from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
+import { db, storage, auth } from "../../lib/firebaseClient";
+import { onAuthStateChanged, getIdTokenResult } from "firebase/auth";
 
-const ReactQuill = dynamic(() => import('react-quill'), { ssr: false })
-import 'react-quill/dist/quill.snow.css'
+const ReactQuill = dynamic(() => import("react-quill"), { ssr: false });
+import "react-quill/dist/quill.snow.css";
 
 export default function PatientsAdmin() {
-  const [updates, setUpdates] = useState([])
-  const [title, setTitle] = useState('')
-  const [body, setBody] = useState('')
-  const [image, setImage] = useState(null)
-  const [user, setUser] = useState(null)
-  const [role, setRole] = useState(null)
-  const [showForm, setShowForm] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [editingId, setEditingId] = useState(null)
-  const [order, setOrder] = useState(100)
+  const [tabs, setTabs] = useState([]);
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [image, setImage] = useState(null);
+  const [imageUrl, setImageUrl] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [user, setUser] = useState(null);
+  const [role, setRole] = useState(null);
+  const formRef = useRef(null);
 
-  // 🧠 Auth + Role
+  const COLL = "patients_tabs";
+
+  // 👤 Auth
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u)
       if (u) {
-        const token = await getIdTokenResult(u)
-        setRole(token.claims?.role || 'public')
+        const token = await getIdTokenResult(u);
+        setUser(u);
+        setRole(token.claims?.role || "public");
       } else {
-        setRole('public')
+        setUser(null);
+        setRole("public");
       }
-      setLoading(false)
-    })
-    return () => unsub()
-  }, [])
+    });
+    return () => unsub();
+  }, []);
 
-  // 🔄 Load from patients_tabs
+  // 🔄 Load data
   useEffect(() => {
-    const fetchData = async () => {
-      const snap = await getDocs(collection(db, 'patients_tabs'))
-      const data = snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-        createdAt: d.data().createdAt?.seconds
-          ? new Date(d.data().createdAt.seconds * 1000)
-          : new Date()
-      }))
-      setUpdates(data.sort((a, b) => a.order - b.order))
+    async function load() {
+      const q = query(collection(db, COLL), orderBy("order", "asc"));
+      const snap = await getDocs(q);
+      setTabs(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     }
-    fetchData()
-  }, [])
+    load();
+  }, []);
 
-  // 🖼️ Upload
+  // 🖼️ Upload Image
   const handleImageUpload = async (file) => {
-    if (!file) return null
-    const storageRef = ref(storage, `patients/${file.name}`)
-    await uploadBytes(storageRef, file)
-    return await getDownloadURL(storageRef)
-  }
+    if (!file) return null;
+    const storageRef = ref(storage, `patients/${file.name}`);
+    await uploadBytes(storageRef, file);
+    return await getDownloadURL(storageRef);
+  };
 
-  // 💾 Add / Update
-  const handleSave = async (e) => {
-    e.preventDefault()
+  // 🗑️ Delete Image
+  const handleImageDelete = async (id, imageUrl) => {
     try {
-      const imageUrl = image ? await handleImageUpload(image) : null
+      if (imageUrl) {
+        const imageRef = ref(storage, imageUrl);
+        await deleteObject(imageRef).catch(() => {});
+      }
+      await updateDoc(doc(db, COLL, id), {
+        imageUrl: null,
+        updatedAt: serverTimestamp(),
+      });
+      setTabs(tabs.map((t) => (t.id === id ? { ...t, imageUrl: null } : t)));
+      setImageUrl(null);
+    } catch (e) {
+      console.error("Error deleting image:", e);
+    }
+  };
+
+  // 💾 Save / Update
+  const handleSave = async (e) => {
+    e.preventDefault();
+    try {
+      const uploadedUrl = image ? await handleImageUpload(image) : imageUrl || null;
 
       if (editingId) {
-        await updateDoc(doc(db, 'patients_tabs', editingId), {
+        await updateDoc(doc(db, COLL, editingId), {
           title,
-          content: body,
-          order,
+          content,
+          imageUrl: uploadedUrl,
           updatedAt: serverTimestamp(),
-          ...(imageUrl && { imageUrl })
-        })
+        });
       } else {
-        await addDoc(collection(db, 'patients_tabs'), {
+        await addDoc(collection(db, COLL), {
           title,
-          content: body,
-          imageUrl,
-          order,
-          createdAt: serverTimestamp()
-        })
+          content,
+          imageUrl: uploadedUrl,
+          createdAt: serverTimestamp(),
+        });
       }
 
-      setTitle('')
-      setBody('')
-      setImage(null)
-      setOrder(100)
-      setShowForm(false)
-      setEditingId(null)
-      window.location.reload()
-    } catch (err) {
-      console.error('Error saving:', err)
+      setTitle("");
+      setContent("");
+      setImage(null);
+      setImageUrl(null);
+      setEditingId(null);
+      setShowForm(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      window.location.reload();
+    } catch (e) {
+      console.error("Error saving:", e);
     }
-  }
+  };
 
   // ✏️ Edit
-  const handleEdit = (u) => {
-    setEditingId(u.id)
-    setTitle(u.title || '')
-    setBody(u.content || '')
-    setOrder(u.order || 100)
-    setShowForm(true)
-  }
+  const handleEdit = (tab) => {
+    setEditingId(tab.id);
+    setTitle(tab.title);
+    setContent(tab.content);
+    setImageUrl(tab.imageUrl || null);
+    setShowForm(true);
+    setTimeout(() => {
+      formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 200);
+  };
 
   // ❌ Delete
   const handleDelete = async (id) => {
-    if (!confirm('Delete this entry?')) return
-    await deleteDoc(doc(db, 'patients_tabs', id))
-    setUpdates(updates.filter((u) => u.id !== id))
-  }
+    if (!confirm("Delete this entry?")) return;
+    await deleteDoc(doc(db, COLL, id));
+    setTabs(tabs.filter((t) => t.id !== id));
+  };
 
-  if (loading) return <Layout>Loading...</Layout>
-
-  if (role === 'public') {
+  if (!["master", "officer"].includes(role))
     return (
       <Layout>
-        <div className="text-center py-20 text-gray-600 dark:text-gray-300">
-          Please sign in to access admin pages.
+        <div className="p-6 text-center text-gray-600 dark:text-gray-300">
+          Access denied — Master or Officer role required.
         </div>
       </Layout>
-    )
-  }
+    );
 
-  if (!['master', 'officer'].includes(role)) {
-    return (
-      <Layout>
-        <div className="text-center py-20 text-gray-600 dark:text-gray-300">
-          Access denied.
-        </div>
-      </Layout>
-    )
-  }
-
-  // ✅ UI
   return (
     <Layout>
-      <div className="p-8">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-bold text-qehNavy dark:text-white">
+      <div className="p-6 space-y-6" ref={formRef}>
+        <div className="flex justify-between items-center">
+          <h1 className="text-2xl font-semibold text-qehNavy dark:text-white">
             Patient Education <span className="text-gray-400 text-lg">(Admin)</span>
           </h1>
           <button
-            onClick={() => {
-              setShowForm(!showForm)
-              if (showForm) {
-                setEditingId(null)
-                setTitle('')
-                setBody('')
-                setImage(null)
-                setOrder(100)
-              }
-            }}
+            onClick={() => setShowForm(!showForm)}
             className={`px-4 py-2 rounded text-white transition ${
               showForm
-                ? 'bg-gray-500 hover:bg-gray-600'
-                : 'bg-qehBlue hover:bg-qehNavy'
+                ? "bg-gray-500 hover:bg-gray-600"
+                : "bg-qehBlue hover:bg-qehNavy"
             }`}
           >
-            {showForm ? 'Cancel' : 'New Update'}
+            {showForm ? "Cancel" : "New Update"}
           </button>
         </div>
 
@@ -185,74 +181,76 @@ export default function PatientsAdmin() {
               className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white"
               required
             />
-            <ReactQuill theme="snow" value={body} onChange={setBody} />
-            <input
-              type="number"
-              value={order}
-              onChange={(e) => setOrder(Number(e.target.value))}
-              placeholder="Order"
-              className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white"
-            />
+            <ReactQuill theme="snow" value={content} onChange={setContent} />
             <input
               type="file"
               onChange={(e) => setImage(e.target.files[0])}
               accept="image/*"
             />
+            {imageUrl && (
+              <div className="relative mt-2">
+                <img
+                  src={imageUrl}
+                  alt=""
+                  className="w-32 h-32 object-cover rounded"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleImageDelete(editingId, imageUrl)}
+                  className="absolute top-1 right-1 bg-red-500 text-white rounded-full px-2 text-xs"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
             <button
               type="submit"
-              className="px-4 py-2 bg-qehBlue hover:bg-qehNavy text-white rounded transition duration-200"
+              className="px-4 py-2 bg-qehBlue hover:bg-qehNavy text-white rounded"
             >
-              {editingId ? 'Update Entry' : 'Submit Update'}
+              {editingId ? "Update Entry" : "Submit Update"}
             </button>
           </form>
         )}
 
+        {/* Existing Entries */}
         <div className="space-y-4 mt-6">
-          {updates.map((u) => (
+          {tabs.map((tab) => (
             <div
-              key={u.id}
-              className="p-4 border rounded bg-gray-50 dark:bg-gray-700 shadow-sm"
+              key={tab.id}
+              className="p-4 border rounded bg-gray-50 dark:bg-gray-700 shadow-sm flex justify-between"
             >
-              <div className="flex justify-between items-start">
-                <div>
-                  <div className="font-semibold text-qehNavy dark:text-white">
-                    {u.title || 'Untitled'}
-                  </div>
-                  <div className="text-sm text-gray-600 dark:text-gray-300">
-                    Order: {u.order || 'N/A'}
-                  </div>
-                  <div
-                    className="mt-2 text-gray-700 dark:text-gray-200"
-                    dangerouslySetInnerHTML={{ __html: u.content }}
+              <div>
+                <h3 className="font-semibold text-qehNavy dark:text-white">{tab.title}</h3>
+                <div
+                  className="mt-2 text-gray-700 dark:text-gray-200"
+                  dangerouslySetInnerHTML={{ __html: tab.content }}
+                />
+                {tab.imageUrl && (
+                  <img
+                    src={tab.imageUrl}
+                    alt=""
+                    className="w-24 h-24 mt-2 object-cover rounded"
                   />
-                  {u.imageUrl && (
-                    <img
-                      src={u.imageUrl}
-                      alt=""
-                      className="w-24 h-24 mt-2 object-cover rounded"
-                    />
-                  )}
-                </div>
-
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleEdit(u)}
-                    className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 text-sm"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => handleDelete(u.id)}
-                    className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 text-sm"
-                  >
-                    Delete
-                  </button>
-                </div>
+                )}
               </div>
+  <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 items-center sm:items-start justify-end">
+  <button
+    onClick={() => handleEdit(tab)}
+    className="bg-yellow-500 hover:bg-yellow-600 text-white text-sm font-medium px-4 py-2 rounded-md shadow-md transition duration-200 w-20 sm:w-auto"
+  >
+    Edit
+  </button>
+  <button
+    onClick={() => handleDelete(tab.id)}
+    className="bg-red-500 hover:bg-red-600 text-white text-sm font-medium px-4 py-2 rounded-md shadow-md transition duration-200 w-20 sm:w-auto"
+  >
+    Delete
+  </button>
+</div>
             </div>
           ))}
         </div>
       </div>
     </Layout>
-  )
+  );
 }
