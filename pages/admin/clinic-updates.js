@@ -293,7 +293,7 @@ export default function ClinicUpdatesAdmin() {
               </div>
             ))}
         </div>
-      </div>
+      </div>. 
     </Layout>
   )
 }
