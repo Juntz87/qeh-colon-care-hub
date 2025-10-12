@@ -9,7 +9,7 @@ import {
   deleteDoc,
   doc,
   updateDoc,
-  serverTimestamp,
+  serverTimestamp
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, storage, auth } from '../../lib/firebaseClient'
@@ -29,7 +29,6 @@ export default function ClinicUpdatesAdmin() {
   const [role, setRole] = useState(null)
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState(null)
-  const [activeTab, setActiveTab] = useState('MDT')
   const [loading, setLoading] = useState(true)
 
   // 🔐 Authentication
@@ -60,7 +59,7 @@ export default function ClinicUpdatesAdmin() {
           id: d.id,
           ...raw,
           date: dateObj,
-          referred: typeof raw.referred === 'boolean' ? raw.referred : false,
+          referred: typeof raw.referred === 'boolean' ? raw.referred : false
         }
       })
       setUpdates(data.sort((a, b) => b.date - a.date))
@@ -85,7 +84,7 @@ export default function ClinicUpdatesAdmin() {
       category,
       referred: category === 'Social Welfare' ? referred : false,
       imageUrl: imageUrl || null,
-      date: serverTimestamp(),
+      date: serverTimestamp()
     }
 
     if (editingId) await updateDoc(doc(db, 'clinic_updates', editingId), data)
@@ -109,7 +108,7 @@ export default function ClinicUpdatesAdmin() {
         id: d.id,
         ...raw,
         date: dateObj,
-        referred: typeof raw.referred === 'boolean' ? raw.referred : false,
+        referred: typeof raw.referred === 'boolean' ? raw.referred : false
       }
     })
     setUpdates(dataList.sort((a, b) => b.date - a.date))
@@ -122,7 +121,6 @@ export default function ClinicUpdatesAdmin() {
     setCategory(u.category || 'MDT')
     setReferred(u.referred || false)
     setShowForm(true)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const handleDelete = async (id) => {
@@ -130,8 +128,6 @@ export default function ClinicUpdatesAdmin() {
     await deleteDoc(doc(db, 'clinic_updates', id))
     setUpdates(updates.filter((u) => u.id !== id))
   }
-
-  const categories = ['MDT', 'Scan', 'Social Welfare', 'Case Discussion']
 
   if (loading) return <Layout>Loading...</Layout>
   if (!['master', 'officer'].includes(role))
@@ -175,7 +171,7 @@ export default function ClinicUpdatesAdmin() {
         {showForm && (
           <form
             onSubmit={handleSave}
-            className="space-y-4 bg-white dark:bg-gray-800 p-6 rounded-xl shadow mb-8"
+            className="space-y-4 bg-white dark:bg-gray-800 p-6 rounded-xl shadow"
           >
             <input
               type="text"
@@ -190,11 +186,13 @@ export default function ClinicUpdatesAdmin() {
               onChange={(e) => setCategory(e.target.value)}
               className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white"
             >
-              {categories.map((c) => (
-                <option key={c}>{c}</option>
-              ))}
+              <option>MDT</option>
+              <option>Scan</option>
+              <option>Social Welfare</option>
+              <option>Case Discussion</option>
             </select>
 
+            {/* ✅ Only show checkbox if category is Social Welfare */}
             {category === 'Social Welfare' && (
               <label className="flex items-center gap-2">
                 <input
@@ -221,77 +219,49 @@ export default function ClinicUpdatesAdmin() {
           </form>
         )}
 
-        {/* Category Tabs */}
-        <div className="flex gap-4 border-b mb-6">
-          {categories.map((c) => (
-            <button
-              key={c}
-              onClick={() => setActiveTab(c)}
-              className={`pb-2 border-b-2 transition-colors ${
-                activeTab === c
-                  ? 'border-qehBlue text-qehBlue font-semibold'
-                  : 'border-transparent text-gray-500 hover:text-qehBlue'
-              }`}
+        <div className="space-y-4 mt-6">
+          {updates.map((u) => (
+            <div
+              key={u.id}
+              className="p-4 border rounded bg-gray-50 dark:bg-gray-700 shadow-sm"
             >
-              {c}
-            </button>
-          ))}
-        </div>
-
-        {/* Updates under selected category */}
-        <div className="space-y-4">
-          {updates
-            .filter((u) => u.category === activeTab)
-            .map((u) => (
-              <div
-                key={u.id}
-                className="p-4 border rounded bg-gray-50 dark:bg-gray-700 shadow-sm"
-              >
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="font-semibold text-qehNavy dark:text-white flex items-center gap-2">
-                      {u.title}
-                      {u.category === 'Social Welfare' &&
-                        (u.referred ? (
-                          <span className="text-green-600">✅</span>
-                        ) : (
-                          <span className="text-yellow-500">⚠️ Pending</span>
-                        ))}
-                    </div>
-                    <div className="text-sm text-gray-600 dark:text-gray-300 mt-1">
-                      {u.category} • {u.date?.toLocaleDateString?.()}
-                    </div>
-                    <div
-                      className="mt-2 text-gray-700 dark:text-gray-200"
-                      dangerouslySetInnerHTML={{ __html: u.body }}
-                    />
-                    {u.imageUrl && (
-                      <img
-                        src={u.imageUrl}
-                        alt=""
-                        className="mt-3 rounded-lg shadow w-48 cursor-pointer hover:opacity-80"
-                        onClick={() => window.open(u.imageUrl, '_blank')}
-                      />
-                    )}
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="font-semibold text-qehNavy dark:text-white flex items-center gap-2">
+                    {u.title}
+                    {u.category === 'Social Welfare' &&
+                      (u.referred ? (
+                        <span className="text-green-600">✅</span>
+                      ) : (
+                        <span className="text-yellow-500">⚠️ Pending</span>
+                      ))}
                   </div>
-
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleEdit(u)}
-                      className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 text-sm"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(u.id)}
-                      className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 text-sm"
-                    >
-                      Delete
-                    </button>
+                  <div className="text-sm text-gray-600 dark:text-gray-300 mt-1">
+                    {u.category} • {u.date?.toLocaleDateString?.()}
                   </div>
+                  <div
+                    className="mt-2 text-gray-700 dark:text-gray-200"
+                    dangerouslySetInnerHTML={{ __html: u.body }}
+                  />
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleEdit(u)}
+                    className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 text-sm"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => handleDelete(u.id)}
+                    className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 text-sm"
+                  >
+                    Delete
+                  </button>
                 </div>
               </div>
-            ))}
+            </div>
+          ))}
         </div>
       </div>
     </Layout>

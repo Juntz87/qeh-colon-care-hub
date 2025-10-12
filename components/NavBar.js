@@ -77,6 +77,9 @@ export default function NavBar() {
           </Link>
 
           {/* Navigation links */}
+          {role === 'master' && (
+  <Link href="/design"><span className="hover:underline text-sm opacity-70">Design</span></Link>
+)}
           <nav className="hidden md:flex gap-4 ml-6 items-center">
             {/* ✅ Officers Resources visible for Master + Officer */}
             {['master', 'officer'].includes(role) && (

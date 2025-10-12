@@ -34,14 +34,13 @@ export default function OfficersResourcesAdmin() {
   const [editingId, setEditingId] = useState(null);
   const COLL = "officer_resources";
 
-  // 👤 Auth + Role
+  // 👤 Auth
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (u) {
         const token = await getIdTokenResult(u);
-        const r = token.claims?.role?.toLowerCase() || "public";
         setUser(u);
-        setRole(r);
+        setRole(token.claims?.role?.toLowerCase() || "public");
       } else {
         setUser(null);
         setRole("public");
@@ -51,13 +50,18 @@ export default function OfficersResourcesAdmin() {
     return () => unsub();
   }, []);
 
-  // 🔄 Load existing resources
+  // 🔄 Load all docs (assign default order to legacy)
   useEffect(() => {
     async function load() {
       try {
-        const q = query(collection(db, COLL), orderBy("order", "asc"));
+        const q = query(collection(db, COLL), orderBy("createdAt", "asc"));
         const snap = await getDocs(q);
-        setResources(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        const loaded = snap.docs.map((d, i) => ({
+          id: d.id,
+          ...d.data(),
+          order: d.data().order ?? i, // assign fallback order
+        }));
+        setResources(loaded.sort((a, b) => a.order - b.order));
       } catch (e) {
         console.error("Load error:", e);
       }
@@ -65,7 +69,7 @@ export default function OfficersResourcesAdmin() {
     load();
   }, []);
 
-  // 🖼 Upload (with progress)
+  // 🖼 Upload with progress
   const handleImageUpload = async (file) => {
     if (!file) return null;
     return new Promise((resolve, reject) => {
@@ -73,15 +77,12 @@ export default function OfficersResourcesAdmin() {
       const uploadTask = uploadBytesResumable(storageRef, file);
       uploadTask.on(
         "state_changed",
-        (snap) => {
-          const progress = (snap.bytesTransferred / snap.totalBytes) * 100;
-          setUploadProgress(progress.toFixed(0));
-        },
-        (error) => reject(error),
-        async () => {
-          const url = await getDownloadURL(uploadTask.snapshot.ref);
-          resolve(url);
-        }
+        (snap) =>
+          setUploadProgress(
+            ((snap.bytesTransferred / snap.totalBytes) * 100).toFixed(0)
+          ),
+        reject,
+        async () => resolve(await getDownloadURL(uploadTask.snapshot.ref))
       );
     });
   };
@@ -89,8 +90,7 @@ export default function OfficersResourcesAdmin() {
   const handleSave = async (e) => {
     e.preventDefault();
     try {
-      let imageUrl = null;
-      if (image) imageUrl = await handleImageUpload(image);
+      const imageUrl = image ? await handleImageUpload(image) : null;
 
       if (editingId) {
         await updateDoc(doc(db, COLL, editingId), {
@@ -135,38 +135,29 @@ export default function OfficersResourcesAdmin() {
     setResources(resources.filter((r) => r.id !== id));
   };
 
-  // 🔼🔽 Reorder controls
+  // 🔼🔽 Order handlers
   const swap = (arr, i, j) => {
     const copy = [...arr];
-    const temp = copy[i];
-    copy[i] = copy[j];
-    copy[j] = temp;
+    [copy[i], copy[j]] = [copy[j], copy[i]];
     return copy;
   };
 
-  const handleMoveUp = (index) => {
-    if (index === 0) return;
-    const reordered = swap(resources, index, index - 1);
-    setResources(reordered);
-  };
+  const handleMoveUp = (index) =>
+    index > 0 && setResources(swap(resources, index, index - 1));
 
-  const handleMoveDown = (index) => {
-    if (index === resources.length - 1) return;
-    const reordered = swap(resources, index, index + 1);
-    setResources(reordered);
-  };
+  const handleMoveDown = (index) =>
+    index < resources.length - 1 && setResources(swap(resources, index, index + 1));
 
   const handleSaveOrder = async () => {
     try {
       const batch = writeBatch(db);
-      resources.forEach((r, idx) => {
-        const refDoc = doc(db, COLL, r.id);
-        batch.update(refDoc, { order: idx });
-      });
+      resources.forEach((r, i) =>
+        batch.update(doc(db, COLL, r.id), { order: i })
+      );
       await batch.commit();
-      alert("Order saved successfully!");
+      alert("Order saved!");
     } catch (e) {
-      console.error("Order save error:", e);
+      console.error("Save order error:", e);
     }
   };
 
@@ -177,22 +168,21 @@ export default function OfficersResourcesAdmin() {
       </Layout>
     );
 
-  if (!["master", "officer"].includes(role)) {
+  if (!["master", "officer"].includes(role))
     return (
       <Layout>
-        <div className="p-6 text-center text-gray-600 dark:text-gray-300">
-          Access denied — Master or Officer role required.
+        <div className="p-6 text-center text-gray-500">
+          Access denied — Master or Officer only.
         </div>
       </Layout>
     );
-  }
 
   return (
     <Layout>
       <div className="p-6 space-y-6">
         <div className="flex justify-between items-center">
           <h1 className="text-2xl font-semibold text-qehNavy dark:text-white">
-            Officers Resources <span className="text-gray-400 text-lg">(Admin)</span>
+            Officers Resources <span className="text-gray-400">(Admin)</span>
           </h1>
           <button
             onClick={() => {
@@ -204,10 +194,8 @@ export default function OfficersResourcesAdmin() {
                 setImage(null);
               }
             }}
-            className={`px-4 py-2 rounded text-white transition ${
-              showForm
-                ? "bg-gray-500 hover:bg-gray-600"
-                : "bg-qehBlue hover:bg-qehNavy"
+            className={`px-4 py-2 rounded text-white ${
+              showForm ? "bg-gray-500" : "bg-qehBlue hover:bg-qehNavy"
             }`}
           >
             {showForm ? "Cancel" : "New Update"}
@@ -234,20 +222,18 @@ export default function OfficersResourcesAdmin() {
               accept="image/*"
             />
             {uploadProgress > 0 && (
-              <div className="text-sm text-gray-600 dark:text-gray-300">
-                Uploading... {uploadProgress}%
-              </div>
+              <p className="text-sm text-gray-600">Uploading... {uploadProgress}%</p>
             )}
             <button
               type="submit"
-              className="px-4 py-2 bg-qehBlue hover:bg-qehNavy text-white rounded transition duration-200"
+              className="px-4 py-2 bg-qehBlue hover:bg-qehNavy text-white rounded"
             >
               {editingId ? "Update Entry" : "Submit Update"}
             </button>
           </form>
         )}
 
-        {/* 🔽 Ordered list with move + save controls */}
+        {/* Ordered list */}
         <div className="mt-6">
           <div className="flex justify-end mb-3">
             <button
@@ -259,7 +245,7 @@ export default function OfficersResourcesAdmin() {
           </div>
 
           <div className="space-y-4">
-            {resources.map((r, index) => (
+            {resources.map((r, i) => (
               <div
                 key={r.id}
                 className="p-4 border rounded bg-gray-50 dark:bg-gray-700 shadow-sm"
@@ -274,43 +260,30 @@ export default function OfficersResourcesAdmin() {
                       dangerouslySetInnerHTML={{ __html: r.content }}
                     />
                     {r.imageUrl && (
-                      <a
-                        href={r.imageUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
+                      <a href={r.imageUrl} target="_blank" rel="noopener noreferrer">
                         <img
                           src={r.imageUrl}
                           alt=""
-                          className="w-full max-w-md mt-2 rounded-lg object-cover shadow-md transition-transform hover:scale-[1.02]"
-                          style={{ aspectRatio: "16/9" }}
+                          className="w-full max-w-md mt-2 rounded-lg object-cover hover:scale-[1.02] transition-transform"
                         />
                       </a>
                     )}
                   </div>
 
                   <div className="flex flex-col gap-2 items-end">
-                    <div className="text-sm text-gray-400">#{index + 1}</div>
+                    <div className="text-sm text-gray-400">#{i + 1}</div>
                     <div className="flex gap-2">
                       <button
-                        onClick={() => handleMoveUp(index)}
-                        disabled={index === 0}
-                        className={`px-2 py-1 rounded ${
-                          index === 0
-                            ? "bg-gray-300 text-gray-600"
-                            : "bg-white/10 text-black dark:text-white hover:bg-gray-200"
-                        }`}
+                        onClick={() => handleMoveUp(i)}
+                        disabled={i === 0}
+                        className="px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
                       >
                         ↑
                       </button>
                       <button
-                        onClick={() => handleMoveDown(index)}
-                        disabled={index === resources.length - 1}
-                        className={`px-2 py-1 rounded ${
-                          index === resources.length - 1
-                            ? "bg-gray-300 text-gray-600"
-                            : "bg-white/10 text-black dark:text-white hover:bg-gray-200"
-                        }`}
+                        onClick={() => handleMoveDown(i)}
+                        disabled={i === resources.length - 1}
+                        className="px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
                       >
                         ↓
                       </button>

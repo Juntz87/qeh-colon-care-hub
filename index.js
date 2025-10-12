@@ -1,5 +1,3 @@
-import { useRef } from "react";
-import { scrollToForm } from "../../lib/scrollToForm";
 // pages/admin/index.js
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
@@ -9,8 +7,6 @@ import { auth } from '../../lib/firebaseClient'
 import { onAuthStateChanged, getIdTokenResult, signOut } from 'firebase/auth'
 
 export default function AdminDashboard() {
-  const formRef = useRef(null);
-
   const [user, setUser] = useState(null)
   const [role, setRole] = useState('public')
   const [loading, setLoading] = useState(true)

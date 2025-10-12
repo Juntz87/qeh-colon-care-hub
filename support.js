@@ -1,5 +1,3 @@
-import { useRef } from "react";
-import { scrollToForm } from "../../lib/scrollToForm";
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -24,8 +22,6 @@ const ReactQuill = dynamic(() => import('react-quill'), { ssr: false })
 import 'react-quill/dist/quill.snow.css'
 
 export default function SupportAdmin() {
-  const formRef = useRef(null);
-
   const [user, setUser] = useState(null)
   const [role, setRole] = useState('')
   const [items, setItems] = useState([])

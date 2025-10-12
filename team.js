@@ -1,5 +1,3 @@
-import { useRef } from "react";
-import { scrollToForm } from "../../lib/scrollToForm";
 'use client'
 import React, { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
@@ -23,8 +21,6 @@ const ReactQuill = dynamic(() => import("react-quill"), { ssr: false });
 import "react-quill/dist/quill.snow.css";
 
 export default function TeamAdmin() {
-  const formRef = useRef(null);
-
   const [user, setUser] = useState(null);
   const [role, setRole] = useState("public");
   const [loading, setLoading] = useState(true);
@@ -116,14 +112,13 @@ export default function TeamAdmin() {
     }
   };
 
-  const handleEdit = {
+  const handleEdit = (m) => {
     setEditingId(m.id);
     setName(m.name);
     setPosition(m.position);
     setRank(m.rank || "");
     setBio(m.bio);
     setShowForm(true);
-    scrollToForm(formRef);
   };
 
   const handleDelete = async (id) => {
