@@ -1,6 +1,6 @@
+'use client'
 import { useRef } from "react";
 import { scrollToForm } from "../../lib/scrollToForm";
-'use client'
 import React, { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import Layout from "../../components/Layout";
