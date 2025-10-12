@@ -1,7 +1,6 @@
 'use client'
-import { useRef } from "react";
-import { scrollToForm } from "../../lib/scrollToForm";
-import React, { useEffect, useState } from "react";
+
+import { useEffect, useState, useRef } from "react";
 import dynamic from "next/dynamic";
 import Layout from "../../components/Layout";
 import { auth, db, storage } from "../../lib/firebaseClient";
@@ -17,7 +16,7 @@ import {
   serverTimestamp,
   updateDoc,
 } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 
 const ReactQuill = dynamic(() => import("react-quill"), { ssr: false });
 import "react-quill/dist/quill.snow.css";
@@ -37,6 +36,7 @@ export default function TeamAdmin() {
   const [rank, setRank] = useState("");
   const [bio, setBio] = useState("");
   const [image, setImage] = useState(null);
+  const [imageUrl, setImageUrl] = useState(null);
 
   const COLL = "team_members";
 
@@ -78,10 +78,24 @@ export default function TeamAdmin() {
     return await getDownloadURL(storageRef);
   };
 
+  const handleImageDelete = async (id, url) => {
+    try {
+      if (url) {
+        const imgRef = ref(storage, url);
+        await deleteObject(imgRef).catch(() => {});
+      }
+      await updateDoc(doc(db, COLL, id), { imageUrl: null });
+      setMembers(members.map((m) => (m.id === id ? { ...m, imageUrl: null } : m)));
+      setImageUrl(null);
+    } catch (e) {
+      console.error("Error deleting image:", e);
+    }
+  };
+
   const handleSave = async (e) => {
     e.preventDefault();
     try {
-      const imageUrl = image ? await handleImageUpload(image) : null;
+      const uploadedUrl = image ? await handleImageUpload(image) : imageUrl || null;
 
       if (editingId) {
         await updateDoc(doc(db, COLL, editingId), {
@@ -89,7 +103,7 @@ export default function TeamAdmin() {
           position,
           rank: Number(rank) || 999,
           bio,
-          ...(imageUrl && { imageUrl }),
+          imageUrl: uploadedUrl,
           updatedAt: serverTimestamp(),
         });
       } else {
@@ -98,7 +112,7 @@ export default function TeamAdmin() {
           position,
           rank: Number(rank) || 999,
           bio,
-          imageUrl,
+          imageUrl: uploadedUrl,
           createdAt: serverTimestamp(),
         });
       }
@@ -108,8 +122,10 @@ export default function TeamAdmin() {
       setRank("");
       setBio("");
       setImage(null);
-      setShowForm(false);
+      setImageUrl(null);
       setEditingId(null);
+      setShowForm(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
       window.location.reload();
     } catch (e) {
       console.error("Save error:", e);
@@ -122,7 +138,11 @@ export default function TeamAdmin() {
     setPosition(m.position);
     setRank(m.rank || "");
     setBio(m.bio);
+    setImageUrl(m.imageUrl || null);
     setShowForm(true);
+    setTimeout(() => {
+      formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 200);
   };
 
   const handleDelete = async (id) => {
@@ -131,9 +151,26 @@ export default function TeamAdmin() {
     setMembers(members.filter((m) => m.id !== id));
   };
 
+  const moveItem = async (index, direction) => {
+    const newIndex = direction === "up" ? index - 1 : index + 1;
+    if (newIndex < 0 || newIndex >= members.length) return;
+
+    const updated = [...members];
+    const temp = updated[index];
+    updated[index] = updated[newIndex];
+    updated[newIndex] = temp;
+
+    await Promise.all(
+      updated.map((item, i) =>
+        updateDoc(doc(db, COLL, item.id), { rank: i + 1 })
+      )
+    );
+    setMembers(updated);
+  };
+
   if (loading) return <Layout><div className="p-6">Loading...</div></Layout>;
 
-  if (!['master', 'officer'].includes(role)) {
+  if (!["master", "officer"].includes(role)) {
     return (
       <Layout>
         <div className="p-6 text-center text-gray-600 dark:text-gray-300">
@@ -145,7 +182,7 @@ export default function TeamAdmin() {
 
   return (
     <Layout>
-      <div className="p-6 space-y-6">
+      <div className="p-6 space-y-6" ref={formRef}>
         <div className="flex justify-between items-center">
           <h1 className="text-2xl font-semibold text-qehNavy dark:text-white">
             Meet Our Team <span className="text-gray-400 text-lg">(Admin)</span>
@@ -200,11 +237,21 @@ export default function TeamAdmin() {
               required
             />
             <ReactQuill theme="snow" value={bio} onChange={setBio} />
-            <input
-              type="file"
-              onChange={(e) => setImage(e.target.files[0])}
-              accept="image/*"
-            />
+            <input type="file" onChange={(e) => setImage(e.target.files[0])} accept="image/*" />
+
+            {imageUrl && (
+              <div className="relative mt-2">
+                <img src={imageUrl} alt="" className="w-32 h-32 object-cover rounded" />
+                <button
+                  type="button"
+                  onClick={() => handleImageDelete(editingId, imageUrl)}
+                  className="absolute top-1 right-1 bg-red-500 text-white rounded-full px-2 text-xs"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
             <button
               type="submit"
               className="px-4 py-2 bg-qehBlue hover:bg-qehNavy text-white rounded transition duration-200"
@@ -215,40 +262,55 @@ export default function TeamAdmin() {
         )}
 
         <div className="space-y-4 mt-6">
-          {members.map((m) => (
+          {members.map((m, index) => (
             <div
               key={m.id}
-              className="p-4 border rounded bg-gray-50 dark:bg-gray-700 shadow-sm"
+              className="p-4 border rounded bg-gray-50 dark:bg-gray-700 shadow-sm flex justify-between"
             >
-              <div className="flex justify-between items-start">
-                <div>
-                  <div className="font-semibold text-qehNavy dark:text-white text-lg">
-                    {m.name} <span className="text-gray-400 text-sm">({m.rank || '-'})</span>
-                  </div>
-                  <div className="text-gray-600 dark:text-gray-300">{m.position}</div>
-                  <div
-                    className="mt-2 text-gray-700 dark:text-gray-200"
-                    dangerouslySetInnerHTML={{ __html: m.bio }}
+              <div>
+                <h3 className="font-semibold text-qehNavy dark:text-white text-lg">
+                  {m.name} <span className="text-gray-400 text-sm">({m.rank || '-'})</span>
+                </h3>
+                <div className="text-gray-600 dark:text-gray-300">{m.position}</div>
+                <div
+                  className="mt-2 text-gray-700 dark:text-gray-200"
+                  dangerouslySetInnerHTML={{ __html: m.bio }}
+                />
+                {m.imageUrl && (
+                  <img
+                    src={m.imageUrl}
+                    alt=""
+                    className="w-24 h-24 mt-2 object-cover rounded"
                   />
-                  {m.imageUrl && (
-                    <img
-                      src={m.imageUrl}
-                      alt=""
-                      className="w-24 h-24 mt-2 object-cover rounded"
-                    />
-                  )}
+                )}
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-2 items-center justify-end">
+                <div className="flex flex-col">
+                  <button
+                    onClick={() => moveItem(index, "up")}
+                    className="bg-gray-300 hover:bg-gray-400 text-gray-800 text-xs rounded px-2 py-1 mb-1"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    onClick={() => moveItem(index, "down")}
+                    className="bg-gray-300 hover:bg-gray-400 text-gray-800 text-xs rounded px-2 py-1"
+                  >
+                    ↓
+                  </button>
                 </div>
 
                 <div className="flex gap-2">
                   <button
                     onClick={() => handleEdit(m)}
-                    className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 text-sm"
+                    className="bg-yellow-500 hover:bg-yellow-600 text-white text-sm font-medium px-4 py-2 rounded-md shadow-md transition duration-200 w-20 sm:w-auto"
                   >
                     Edit
                   </button>
                   <button
                     onClick={() => handleDelete(m.id)}
-                    className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 text-sm"
+                    className="bg-red-500 hover:bg-red-600 text-white text-sm font-medium px-4 py-2 rounded-md shadow-md transition duration-200 w-20 sm:w-auto"
                   >
                     Delete
                   </button>
