@@ -1,7 +1,5 @@
-import { useRef } from "react";
-import { scrollToForm } from "../../lib/scrollToForm";
 'use client'
-
+import { useRef } from "react";
 import { useEffect, useState } from 'react'
 import Layout from '../../components/Layout'
 import dynamic from 'next/dynamic'

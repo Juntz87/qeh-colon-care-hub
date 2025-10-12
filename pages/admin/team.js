@@ -116,14 +116,13 @@ export default function TeamAdmin() {
     }
   };
 
-  const handleEdit = {
+  const handleEdit = (m) => {
     setEditingId(m.id);
     setName(m.name);
     setPosition(m.position);
     setRank(m.rank || "");
     setBio(m.bio);
     setShowForm(true);
-    scrollToForm(formRef);
   };
 
   const handleDelete = async (id) => {
