@@ -129,7 +129,7 @@ export default function OfficersResources() {
                       <img
                         src={tabs[active].imageUrl}
                         alt={tabs[active].title}
-                        className="w-full max-h-[450px] object-cover transition-transform hover:scale-[1.02]"
+                        className="w-full max-h-[450px] object-cover transition-transform hover:scale-[1.02] cursor-pointer"
                         style={{ aspectRatio: "16/9" }}
                       />
                     </a>
