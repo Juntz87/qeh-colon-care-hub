@@ -265,7 +265,7 @@ export default function TeamAdmin() {
           {members.map((m, index) => (
             <div
               key={m.id}
-              className="p-4 border rounded bg-gray-50 dark:bg-gray-700 shadow-sm flex justify-between"
+              className="p-4 border rounded bg-white dark:bg-gray-800 shadow-sm flex justify-between"
             >
               <div>
                 <h3 className="font-semibold text-qehNavy dark:text-white text-lg">
@@ -273,7 +273,7 @@ export default function TeamAdmin() {
                 </h3>
                 <div className="text-gray-600 dark:text-gray-300">{m.position}</div>
                 <div
-                  className="mt-2 text-gray-700 dark:text-gray-200"
+                  className="mt-2 text-gray-700 dark:text-gray-300"
                   dangerouslySetInnerHTML={{ __html: m.bio }}
                 />
                 {m.imageUrl && (

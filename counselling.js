@@ -178,7 +178,7 @@ export default function AdminCounselling() {
         </div>
 
         {showForm && (
-          <div className="grid gap-4 mb-8 p-4 border rounded bg-gray-50 dark:bg-gray-700">
+          <div className="grid gap-4 mb-8 p-4 border rounded bg-white dark:bg-gray-800">
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -217,7 +217,7 @@ export default function AdminCounselling() {
           {tabs.map((t) => (
             <div
               key={t.id}
-              className="p-4 border rounded bg-gray-50 dark:bg-gray-700 shadow-sm"
+              className="p-4 border rounded bg-white dark:bg-gray-800 shadow-sm"
             >
               <div className="flex justify-between items-start">
                 <div>

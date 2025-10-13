@@ -211,7 +211,7 @@ export default function PatientsAdmin() {
           {updates.map((u) => (
             <div
               key={u.id}
-              className="p-4 border rounded bg-gray-50 dark:bg-gray-700 shadow-sm"
+              className="p-4 border rounded bg-white dark:bg-gray-800 shadow-sm"
             >
               <div className="flex justify-between items-start">
                 <div>
@@ -222,7 +222,7 @@ export default function PatientsAdmin() {
                     Order: {u.order || 'N/A'}
                   </div>
                   <div
-                    className="mt-2 text-gray-700 dark:text-gray-200"
+                    className="mt-2 text-gray-700 dark:text-gray-300"
                     dangerouslySetInnerHTML={{ __html: u.content }}
                   />
                   {u.imageUrl && (

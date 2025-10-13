@@ -6,7 +6,7 @@ export default function Contact(){
     <Layout>
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
         <h1 className="text-2xl font-bold text-qehNavy dark:text-white">Contact</h1>
-        <p className="mt-3 text-gray-700 dark:text-gray-200">For questions, message us on WhatsApp:</p>
+        <p className="mt-3 text-gray-700 dark:text-gray-300">For questions, message us on WhatsApp:</p>
         <a className="inline-block mt-3 px-4 py-2 rounded-md bg-qehBlue text-white" href={`https://wa.me/${wa}`} target="_blank" rel="noreferrer">Chat on WhatsApp</a>
 
         <div className="mt-6">

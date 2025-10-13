@@ -1,4 +1,5 @@
 'use client'
+
 import React, { useEffect, useState } from "react";
 import Layout from "../components/Layout";
 import { auth, db } from "../lib/firebaseClient";
@@ -55,7 +56,7 @@ export default function OfficersResources() {
     load();
   }, []);
 
-  // ✨ Convert plain URLs into clickable links
+  // Convert plain URLs into clickable links
   const makeLinksClickable = (html) => {
     if (!html) return "";
     return html.replace(
@@ -75,8 +76,7 @@ export default function OfficersResources() {
     return (
       <Layout>
         <div className="p-6 text-center text-gray-700 dark:text-gray-300">
-          403 — Access restricted. This section is only available to authorised
-          Medical Officers / Admins.
+          403 — Access restricted. This section is only available to authorised Medical Officers / Admins.
         </div>
       </Layout>
     );
@@ -85,30 +85,28 @@ export default function OfficersResources() {
   return (
     <Layout>
       <div className="p-6">
-        <h1 className="text-2xl font-semibold mb-4 text-qehNavy dark:text-white">
+        <h1 className="text-2xl font-bold text-qehNavy dark:text-white mb-4">
           Officers Resources
         </h1>
 
-        {loadingTabs && (
-          <div className="text-gray-500">Loading resources...</div>
-        )}
+        {loadingTabs && <div className="text-gray-500">Loading resources...</div>}
 
         {!loadingTabs && tabs.length === 0 && (
           <div className="text-gray-600">No resources published yet.</div>
         )}
 
         {!loadingTabs && tabs.length > 0 && (
-          <>
+          <div className="mt-4">
             {/* Tabs */}
-            <div className="flex gap-3 overflow-x-auto pb-2">
+            <div className="flex gap-2 overflow-x-auto pb-2">
               {tabs.map((t, i) => (
                 <button
                   key={t.id}
                   onClick={() => setActive(i)}
-                  className={`px-4 py-2 rounded-2xl border-2 transition ${
-                    i === active
-                      ? "bg-qehNavy text-white border-qehNavy shadow-lg"
-                      : "bg-white dark:bg-gray-800 text-qehNavy border-gray-200 dark:border-gray-700"
+                  className={`px-3 py-2 rounded-md transition ${
+                    active === i
+                      ? "bg-qehBlue text-white shadow"
+                      : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
                   }`}
                 >
                   {t.title}
@@ -116,48 +114,34 @@ export default function OfficersResources() {
               ))}
             </div>
 
-            {/* Active content */}
-            <div className="mt-6 bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden border border-gray-200 dark:border-gray-700">
-              {tabs[active] && (
-                <>
-                  {tabs[active].imageUrl && (
-                    <a
-                      href={tabs[active].imageUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <img
-                        src={tabs[active].imageUrl}
-                        alt={tabs[active].title}
-                        className="w-full max-h-[450px] object-cover transition-transform hover:scale-[1.02] cursor-pointer"
-                        style={{ aspectRatio: "16/9" }}
-                      />
-                    </a>
-                  )}
-                  <div className="p-6">
-                    <div className="flex items-center justify-between">
-                      <h2 className="text-xl font-semibold text-qehNavy dark:text-white">
-                        {tabs[active].title}
-                      </h2>
-                      {tabs[active].category && (
-                        <span className="text-sm px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded">
-                          {tabs[active].category}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* 🔗 Safe clickable links */}
-                    <div
-                      className="prose max-w-none dark:prose-invert text-gray-700 dark:text-gray-300 mt-4"
-                      dangerouslySetInnerHTML={{
-                        __html: makeLinksClickable(tabs[active].content || ""),
-                      }}
-                    />
-                  </div>
-                </>
+            {/* Active Tab Content */}
+            <div className="mt-4 bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+              {tabs[active].imageUrl && (
+                <a
+                  href={tabs[active].imageUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <img
+                    src={tabs[active].imageUrl}
+                    alt={tabs[active].title}
+                    className="w-full h-56 object-cover rounded mb-4 cursor-pointer hover:opacity-90"
+                  />
+                </a>
               )}
+
+              <h2 className="text-xl font-semibold text-qehNavy dark:text-white mb-3">
+                {tabs[active].title}
+              </h2>
+
+              <div
+                className="prose max-w-none dark:prose-invert text-gray-700 dark:text-gray-300"
+                dangerouslySetInnerHTML={{
+                  __html: makeLinksClickable(tabs[active].content || ""),
+                }}
+              />
             </div>
-          </>
+          </div>
         )}
       </div>
     </Layout>

@@ -131,7 +131,7 @@ export default function ClinicUpdates() {
             groupedByDate[selectedDate].map((u) => (
               <div
                 key={u.id}
-                className="p-4 border rounded bg-gray-50 dark:bg-gray-700"
+                className="p-4 border rounded bg-white dark:bg-gray-800"
               >
                 <div className="flex justify-between items-start">
                   <div>
@@ -155,7 +155,7 @@ export default function ClinicUpdates() {
                 </div>
                 {u.body && (
                   <div
-                    className="mt-2 text-gray-700 dark:text-gray-200"
+                    className="mt-2 text-gray-700 dark:text-gray-300"
                     dangerouslySetInnerHTML={{ __html: u.body }}
                   />
                 )}

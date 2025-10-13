@@ -40,7 +40,7 @@ export default function Team() {
         <h1 className="text-2xl font-bold text-qehNavy dark:text-white">
           Meet Our Team
         </h1>
-        <p className="mt-3 text-gray-700 dark:text-gray-200">
+        <p className="mt-3 text-gray-700 dark:text-gray-300">
           Our multidisciplinary team provides expert colorectal care.
         </p>
 
@@ -51,7 +51,7 @@ export default function Team() {
             {team.map((m) => (
               <div
                 key={m.id}
-                className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg flex flex-col items-center text-center hover:shadow-lg transition"
+                className="p-4 bg-white dark:bg-gray-800 rounded-lg flex flex-col items-center text-center hover:shadow-lg hover:shadow-qehBlue/20 dark:hover:shadow-qehBlue/40 transition"
               >
                 <img
                   src={m.imageUrl || "/default-avatar.png"}
@@ -67,7 +67,7 @@ export default function Team() {
                   </div>
                   {m.bio && (
                     <div
-                      className="mt-2 text-gray-700 dark:text-gray-200 text-sm"
+                      className="mt-2 text-gray-700 dark:text-gray-300 text-sm"
                       dangerouslySetInnerHTML={{ __html: m.bio }}
                     />
                   )}

@@ -217,12 +217,12 @@ export default function PatientsAdmin() {
           {tabs.map((tab) => (
             <div
               key={tab.id}
-              className="p-4 border rounded bg-gray-50 dark:bg-gray-700 shadow-sm flex justify-between"
+              className="p-4 border rounded bg-white dark:bg-gray-800 shadow-sm flex justify-between"
             >
               <div>
                 <h3 className="font-semibold text-qehNavy dark:text-white">{tab.title}</h3>
                 <div
-                  className="mt-2 text-gray-700 dark:text-gray-200"
+                  className="mt-2 text-gray-700 dark:text-gray-300"
                   dangerouslySetInnerHTML={{ __html: tab.content }}
                 />
                 {tab.imageUrl && (

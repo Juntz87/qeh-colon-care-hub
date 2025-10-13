@@ -1,4 +1,5 @@
 'use client'
+
 import { useEffect, useState } from 'react'
 import Layout from '../components/Layout'
 import { motion } from 'framer-motion'
@@ -15,7 +16,7 @@ export default function Counselling() {
       try {
         const q = query(collection(db, 'counselling_tabs'), orderBy('order', 'asc'))
         const snap = await getDocs(q)
-        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
         setTabs(data)
         setActiveTab(data[0]?.id || null)
       } catch (err) {
@@ -27,7 +28,7 @@ export default function Counselling() {
     fetchTabs()
   }, [])
 
-  const active = tabs.find(t => t.id === activeTab)
+  const active = tabs.find((t) => t.id === activeTab)
 
   return (
     <Layout>
@@ -35,26 +36,30 @@ export default function Counselling() {
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
-        className="max-w-4xl mx-auto bg-white dark:bg-gray-800 rounded-lg shadow p-6"
+        className="max-w-4xl mx-auto bg-white dark:bg-gray-900 rounded-xl shadow-sm p-6 transition-colors duration-300"
       >
-        <h1 className="text-2xl font-semibold mb-4">Counselling</h1>
+        <h1 className="text-2xl font-bold text-qehNavy dark:text-white mb-4">
+          Counselling
+        </h1>
 
         {loading ? (
-          <div className="text-gray-500">Loading...</div>
+          <div className="text-gray-500 dark:text-gray-400">Loading...</div>
         ) : tabs.length === 0 ? (
-          <div className="text-gray-500">No counselling materials available yet.</div>
+          <div className="text-gray-600 dark:text-gray-400">
+            No counselling materials available yet.
+          </div>
         ) : (
           <>
             {/* Tabs */}
             <div className="flex flex-wrap gap-2 mb-4">
-              {tabs.map(tab => (
+              {tabs.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`px-4 py-2 rounded-lg border transition-all ${
+                  className={`px-4 py-2 rounded-md transition-all ${
                     activeTab === tab.id
-                      ? 'bg-qehBlue text-white border-qehBlue'
-                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200'
+                      ? 'bg-qehBlue text-white shadow'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
                   }`}
                 >
                   {tab.title}
@@ -64,16 +69,22 @@ export default function Counselling() {
 
             {/* Active tab content */}
             {active && (
-              <div className="mt-6">
+              <div className="mt-6 bg-gray-50 dark:bg-gray-800 rounded-lg shadow p-6">
                 {active.imageUrl && (
-                  <img
-                    src={active.imageUrl}
-                    alt={active.title}
-                    className="w-full max-h-96 object-contain rounded-lg mb-4"
-                  />
+                  <a
+                    href={active.imageUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <img
+                      src={active.imageUrl}
+                      alt={active.title}
+                      className="w-full max-h-96 object-contain rounded-lg mb-4 cursor-pointer hover:opacity-90"
+                    />
+                  </a>
                 )}
                 <div
-                  className="prose dark:prose-invert max-w-none"
+                  className="prose max-w-none dark:prose-invert text-gray-700 dark:text-gray-300"
                   dangerouslySetInnerHTML={{ __html: active.content }}
                 />
               </div>

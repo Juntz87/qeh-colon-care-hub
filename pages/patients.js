@@ -51,7 +51,7 @@ export default function Patients() {
                   className={`px-3 py-2 rounded-md transition ${
                     active === i
                       ? "bg-qehBlue text-white shadow"
-                      : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200"
+                      : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
                   }`}
                 >
                   {t.title}

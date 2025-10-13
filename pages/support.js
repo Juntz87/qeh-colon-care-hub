@@ -62,7 +62,7 @@ export default function Support() {
             {supportData.map((item) => (
               <div
                 key={item.id}
-                className="p-5 rounded-xl shadow-sm bg-gray-50 dark:bg-gray-700 transition hover:shadow-md"
+                className="p-5 rounded-xl shadow-sm bg-white dark:bg-gray-800 transition hover:shadow-md"
               >
                 {/* Title */}
                 <h2 className="text-xl font-semibold text-qehNavy dark:text-white mb-2">
