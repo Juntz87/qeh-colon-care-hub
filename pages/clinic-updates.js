@@ -1,171 +1,182 @@
 'use client'
-import { useState, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import Layout from '../components/Layout'
-import useSWR from 'swr'
-import { collection, query, orderBy, getDocs } from 'firebase/firestore'
-import { db } from '../lib/firebaseClient'
+import dynamic from 'next/dynamic'
+import { collection, getDocs } from 'firebase/firestore'
+import { db, auth } from '../lib/firebaseClient'
+import { onAuthStateChanged } from 'firebase/auth'
 
-const fetcher = async () => {
-  const q = query(collection(db, 'clinic_updates'), orderBy('date', 'desc'))
-  const snap = await getDocs(q)
+const ReactQuill = dynamic(() => import('react-quill'), { ssr: false })
+import 'react-quill/dist/quill.snow.css'
 
-  return snap.docs.map((d) => {
-    const data = d.data()
-    let parsedDate
-
-    if (data.date?.seconds) parsedDate = new Date(data.date.seconds * 1000)
-    else if (typeof data.date === 'string') parsedDate = new Date(data.date)
-    else parsedDate = new Date()
-
-    return {
-      id: d.id,
-      ...data,
-      date: parsedDate,
-      category: data.category || 'Uncategorized',
-      referred: typeof data.referred === 'boolean' ? data.referred : false
-    }
-  })
-}
-
-export default function ClinicUpdates() {
-  const { data } = useSWR('clinic_updates', fetcher, { revalidateOnFocus: false })
-  const updates = data || []
-
+export default function ClinicUpdatesPublic() {
+  const [signedIn, setSignedIn] = useState(false)
+  const [loadingAuth, setLoadingAuth] = useState(true)
+  const [updates, setUpdates] = useState([])
   const [activeCategory, setActiveCategory] = useState('MDT')
-  const [activeDate, setActiveDate] = useState(null)
+  const [activeDateKey, setActiveDateKey] = useState(null) // e.g. '2025-10-14'
+  const categories = ['MDT', 'Scan', 'Social Welfare', 'Case Discussion']
 
-  // 🧠 Helper to normalize case
-  const normalize = (s = '') => s.toLowerCase().trim()
+  // auth listener — require sign in to view page
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setSignedIn(Boolean(u))
+      setLoadingAuth(false)
+    })
+    return () => unsub()
+  }, [])
 
-  // Group by category
-  const groupedByCategory = useMemo(() => {
-    const catMap = {}
-    for (const u of updates) {
-      const cat = normalize(u.category || 'Uncategorized')
-      if (!catMap[cat]) catMap[cat] = []
-      catMap[cat].push(u)
+  // load all updates (client side)
+  useEffect(() => {
+    async function load() {
+      try {
+        const snap = await getDocs(collection(db, 'clinic_updates'))
+        const data = snap.docs.map((d) => {
+          const raw = d.data()
+          const dateObj = raw.date?.seconds ? new Date(raw.date.seconds * 1000) : raw.date ? new Date(raw.date) : new Date()
+          return {
+            id: d.id,
+            ...raw,
+            date: dateObj,
+            // ensure referred is boolean for Social Welfare
+            referred: typeof raw.referred === 'boolean' ? raw.referred : false,
+          }
+        })
+        // sort newest first
+        const sorted = data.sort((a, b) => b.date - a.date)
+        setUpdates(sorted)
+        // set default dateKey for selected category if available
+        const firstInCategory = sorted.find((u) => u.category === activeCategory)
+        if (firstInCategory) {
+          const key = dateKeyFromDate(firstInCategory.date)
+          setActiveDateKey(key)
+        } else {
+          setActiveDateKey(null)
+        }
+      } catch (e) {
+        console.error('Load clinic updates error', e)
+      }
     }
-    return catMap
-  }, [updates])
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  // Group active category by date
-  const groupedByDate = useMemo(() => {
-    const list =
-      groupedByCategory[normalize(activeCategory)] ||
-      groupedByCategory[activeCategory] ||
-      []
-    const dateMap = {}
-    for (const item of list) {
-      const dateStr = item.date ? item.date.toLocaleDateString() : 'Undated'
-      if (!dateMap[dateStr]) dateMap[dateStr] = []
-      dateMap[dateStr].push(item)
+  // helper to create date string key 'YYYY-MM-DD'
+  const dateKeyFromDate = (d) => {
+    if (!d) return null
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+
+  // build grouped structure by category -> dateKey -> items
+  const grouped = categories.reduce((acc, cat) => {
+    const items = updates.filter((u) => u.category === cat)
+    const byDate = items.reduce((b, item) => {
+      const key = dateKeyFromDate(item.date)
+      if (!b[key]) b[key] = []
+      b[key].push(item)
+      return b
+    }, {})
+    // convert to array of {dateKey, dateObj, items}
+    const dateGroups = Object.keys(byDate)
+      .sort((a, b) => (a < b ? 1 : -1)) // newest date first
+      .map((k) => ({
+        dateKey: k,
+        dateObj: new Date(k + 'T00:00:00'),
+        items: byDate[k].sort((a, b) => b.date - a.date),
+      }))
+    acc[cat] = dateGroups
+    return acc
+  }, {})
+
+  useEffect(() => {
+    // when switching category, pick first date group if none selected
+    const groups = grouped[activeCategory] || []
+    if (groups.length > 0) {
+      setActiveDateKey(groups[0].dateKey)
+    } else {
+      setActiveDateKey(null)
     }
-    return dateMap
-  }, [groupedByCategory, activeCategory])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCategory, updates])
 
-  const dateTabs = Object.keys(groupedByDate).sort(
-    (a, b) => new Date(b) - new Date(a)
-  )
-  const selectedDate = activeDate || dateTabs[0]
-
-  // ✅ Status Badge
-  const WelfareStatus = ({ referred }) =>
-    referred ? (
-      <span className="ml-2 text-green-600 text-sm">✅ Referred</span>
-    ) : (
-      <span className="ml-2 text-yellow-500 text-sm">⚠️ Pending</span>
+  if (loadingAuth) return <Layout><div className="p-6">Checking sign-in...</div></Layout>
+  if (!signedIn)
+    return (
+      <Layout>
+        <div className="py-24 text-center text-gray-600 dark:text-gray-300">
+          This page is private. Please sign in to view Clinic Updates.
+        </div>
+      </Layout>
     )
 
   return (
     <Layout>
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-        <h1 className="text-2xl font-bold text-qehNavy dark:text-white">
-          Clinic Updates
-        </h1>
-        <p className="mt-2 text-gray-700 dark:text-gray-300">
-          Latest MDTs, upcoming scans, and welfare follow-ups.
-        </p>
+      <div className="p-8 max-w-5xl mx-auto">
+        <h1 className="text-2xl font-bold text-qehNavy dark:text-white mb-6">Clinic Updates</h1>
 
-        {/* Category Tabs */}
-        <div className="flex flex-wrap gap-2 mt-4">
-          {['MDT', 'Scan', 'Social Welfare', 'Case Discussion'].map((cat) => (
+        {/* Category tabs (box-style like Patients) */}
+        <div className="flex gap-3 mb-6">
+          {categories.map((c) => (
             <button
-              key={cat}
-              onClick={() => {
-                setActiveCategory(cat)
-                setActiveDate(null)
-              }}
-              className={`px-4 py-2 rounded ${
-                normalize(activeCategory) === normalize(cat)
-                  ? 'bg-qehBlue text-white'
-                  : 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
+              key={c}
+              onClick={() => setActiveCategory(c)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+                activeCategory === c
+                  ? 'bg-qehNavy text-white'
+                  : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border'
               }`}
             >
-              {cat}
+              {c}
             </button>
           ))}
         </div>
 
-        {/* Date Tabs */}
-        {dateTabs.length > 0 && (
-          <div className="flex flex-wrap gap-2 mt-4">
-            {dateTabs.map((date) => (
-              <button
-                key={date}
-                onClick={() => setActiveDate(date)}
-                className={`px-3 py-1 rounded text-sm ${
-                  selectedDate === date
-                    ? 'bg-qehNavy text-white'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                }`}
-              >
-                {date}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* Date tabs for the selected category */}
+        <div className="flex gap-2 mb-6 flex-wrap">
+          {(grouped[activeCategory] || []).map((g) => (
+            <button
+              key={g.dateKey}
+              onClick={() => setActiveDateKey(g.dateKey)}
+              className={`px-3 py-1 rounded text-sm transition ${
+                activeDateKey === g.dateKey ? 'bg-qehBlue text-white' : 'bg-transparent text-gray-600 dark:text-gray-300'
+              }`}
+            >
+              {g.dateObj.toLocaleDateString?.('en-MY', { dateStyle: 'medium' })}
+            </button>
+          ))}
+          {(grouped[activeCategory] || []).length === 0 && (
+            <div className="text-sm text-gray-500">No updates in this category.</div>
+          )}
+        </div>
 
-        {/* Updates */}
-        <div className="mt-4 space-y-4">
-          {groupedByDate[selectedDate]?.length ? (
-            groupedByDate[selectedDate].map((u) => (
-              <div
-                key={u.id}
-                className="p-4 border rounded bg-white dark:bg-gray-800"
-              >
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="font-semibold text-qehNavy dark:text-white flex items-center">
-                      {u.title}
-                      {normalize(u.category) === 'social welfare' && (
-                        <WelfareStatus referred={u.referred} />
-                      )}
-                    </div>
-                    <div className="text-sm text-gray-600 dark:text-gray-300">
-                      {u.category} • {u.date.toLocaleTimeString()}
-                    </div>
+        {/* Items under chosen date */}
+        <div className="space-y-4">
+          {((grouped[activeCategory] || []).find((g) => g.dateKey === activeDateKey) || { items: [] }).items.map((u) => (
+            <article key={u.id} className="p-4 border rounded bg-white dark:bg-gray-800 shadow-sm">
+              <div className="flex justify-between items-start gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <h2 className="font-semibold text-qehNavy dark:text-white">{u.title || 'Untitled'}</h2>
+                    {u.category === 'Social Welfare' && (
+                      u.referred ? <span className="text-green-600">✅</span> : <span className="text-yellow-500">⚠️ Pending</span>
+                    )}
                   </div>
+                  <div className="text-sm text-gray-600 dark:text-gray-300 mt-1">{u.category} • {u.date?.toLocaleString?.()}</div>
+                  <div className="mt-2 text-gray-700 dark:text-gray-200" dangerouslySetInnerHTML={{ __html: u.body || u.content || '' }} />
                   {u.imageUrl && (
-                    <img
-                      src={u.imageUrl}
-                      alt=""
-                      className="w-20 h-20 object-cover rounded"
-                    />
+                    <div className="mt-3">
+                      <a href={u.imageUrl} target="_blank" rel="noopener noreferrer">
+                        <img className="w-48 h-36 object-cover rounded shadow hover:opacity-90" src={u.imageUrl} alt={u.title || ''} />
+                      </a>
+                    </div>
                   )}
                 </div>
-                {u.body && (
-                  <div
-                    className="mt-2 text-gray-700 dark:text-gray-300"
-                    dangerouslySetInnerHTML={{ __html: u.body }}
-                  />
-                )}
               </div>
-            ))
-          ) : (
-            <div className="text-gray-600 dark:text-gray-300 mt-4">
-              No updates for this date.
-            </div>
-          )}
+            </article>
+          ))}
         </div>
       </div>
     </Layout>
