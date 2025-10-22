@@ -220,7 +220,6 @@ export default function ClinicUpdatesAdmin() {
         {/* Form */}
         {showForm && (
           <form onSubmit={handleSave} className="space-y-4 bg-white dark:bg-gray-800 p-6 rounded-xl shadow mb-8">
-            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white" required />
             <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white" />
             <input type="text" value={ic} onChange={(e) => setIC(e.target.value)} placeholder="IC" className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white" />
             <input type="text" value={diagnosis} onChange={(e) => setDiagnosis(e.target.value)} placeholder="Diagnosis" className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white" />

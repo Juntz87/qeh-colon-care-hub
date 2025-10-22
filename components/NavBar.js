@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Sun, Moon, LogIn, LogOut } from 'lucide-react'
+import { Sun, Moon, LogIn, LogOut, Shield } from 'lucide-react'
 import { auth, provider } from '../lib/firebaseClient'
 import { onAuthStateChanged, signInWithPopup, signOut, getIdTokenResult } from 'firebase/auth'
 
@@ -67,6 +67,10 @@ export default function NavBar() {
     }
   }
 
+  // 🔐 Who can see the Admin button?
+  const hasAdminAccess = ['master', 'officer', 'admin'].includes(role)
+  const adminHref = role === 'officer' ? '/admin/clinic-updates' : '/admin'
+
   return (
     <header className="bg-gradient-to-r from-qehNavy to-qehBlue text-white shadow-sm">
       <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
@@ -78,8 +82,8 @@ export default function NavBar() {
 
           {/* Navigation links */}
           {role === 'master' && (
-  <Link href="/design"><span className="hover:underline text-sm opacity-70">Design</span></Link>
-)}
+            <Link href="/design"><span className="hover:underline text-sm opacity-70">Design</span></Link>
+          )}
           <nav className="hidden md:flex gap-4 ml-6 items-center">
             {/* ✅ Officers Resources visible for Master + Officer */}
             {['master', 'officer'].includes(role) && (
@@ -99,6 +103,14 @@ export default function NavBar() {
 
         {/* Right side */}
         <div className="flex items-center gap-3">
+          {/* 🔸 Admin button (role-based link) */}
+          {user && hasAdminAccess && (
+            <Link href={adminHref} className="flex items-center gap-2 px-3 py-2 bg-white/10 hover:bg-white/20 rounded-md text-sm transition">
+              <Shield size={16} />
+              Admin
+            </Link>
+          )}
+
           {/* Theme toggle */}
           <button
             onClick={toggleTheme}
