@@ -71,21 +71,53 @@ export default function TeamAdmin() {
     load();
   }, []);
 
+  // Upload file -> returns { url, path } where path is storage path (e.g. team/ts_filename.jpg)
   const handleImageUpload = async (file) => {
     if (!file) return null;
-    const storageRef = ref(storage, `team/${file.name}`);
-    await uploadBytes(storageRef, file);
-    return await getDownloadURL(storageRef);
+    try {
+      const timestamp = Date.now();
+      const safeName = file.name.replace(/\s+/g, '_');
+      const storagePath = `team/${timestamp}_${safeName}`;
+      const storageRef = ref(storage, storagePath);
+      const metadata = { contentType: file.type || 'image/jpeg' };
+      await uploadBytes(storageRef, file, metadata);
+      const url = await getDownloadURL(storageRef);
+      return { url, path: storagePath };
+    } catch (e) {
+      console.error("Image upload failed:", e);
+      throw e;
+    }
   };
 
+  // Delete image by deriving storage path from download URL
   const handleImageDelete = async (id, url) => {
     try {
       if (url) {
-        const imgRef = ref(storage, url);
-        await deleteObject(imgRef).catch(() => {});
+        // Firebase download URLs look like:
+        // https://firebasestorage.googleapis.com/v0/b/<bucket>/o/team%2F123_filename.jpg?alt=media&token=...
+        // Extract encoded path between '/o/' and '?'
+        const parts = url.split('/o/');
+        if (parts.length > 1) {
+          const pathAndQuery = parts[1];
+          const encodedPath = pathAndQuery.split('?')[0];
+          const storagePath = decodeURIComponent(encodedPath); // e.g. team/123_filename.jpg
+          const imgRef = ref(storage, storagePath);
+          await deleteObject(imgRef).catch((err) => {
+            // ignore if not found
+            console.warn("Could not delete object from storage:", err?.message || err);
+          });
+        } else {
+          // fallback - try to use the url directly (may fail)
+          const imgRef = ref(storage, url);
+          await deleteObject(imgRef).catch(() => {});
+        }
       }
-      await updateDoc(doc(db, COLL, id), { imageUrl: null });
-      setMembers(members.map((m) => (m.id === id ? { ...m, imageUrl: null } : m)));
+      // Update Firestore doc to remove imageUrl
+      if (id) {
+        await updateDoc(doc(db, COLL, id), { imageUrl: null }).catch(() => {});
+      }
+      // update local state
+      setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, imageUrl: null } : m)));
       setImageUrl(null);
     } catch (e) {
       console.error("Error deleting image:", e);
@@ -95,7 +127,13 @@ export default function TeamAdmin() {
   const handleSave = async (e) => {
     e.preventDefault();
     try {
-      const uploadedUrl = image ? await handleImageUpload(image) : imageUrl || null;
+      // If a new file is selected, upload it and get url/path.
+      // If no new file but imageUrl exists (from editing), keep it.
+      let uploadedUrl = imageUrl || null;
+      if (image) {
+        const uploaded = await handleImageUpload(image); // {url, path}
+        uploadedUrl = uploaded?.url || uploadedUrl;
+      }
 
       if (editingId) {
         await updateDoc(doc(db, COLL, editingId), {
@@ -117,6 +155,7 @@ export default function TeamAdmin() {
         });
       }
 
+      // clear form
       setName("");
       setPosition("");
       setRank("");
@@ -125,10 +164,16 @@ export default function TeamAdmin() {
       setImageUrl(null);
       setEditingId(null);
       setShowForm(false);
+
+      // scroll top and refresh listing
       window.scrollTo({ top: 0, behavior: "smooth" });
-      window.location.reload();
+      // reload data (safe) — prefer to re-run load by fetching again rather than full page reload
+      const q = query(collection(db, COLL), orderBy("rank", "asc"));
+      const snap = await getDocs(q);
+      setMembers(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     } catch (e) {
       console.error("Save error:", e);
+      alert("Failed to save. Check console for details.");
     }
   };
 
@@ -197,6 +242,7 @@ export default function TeamAdmin() {
                 setRank("");
                 setBio("");
                 setImage(null);
+                setImageUrl(null);
               }
             }}
             className={`px-4 py-2 rounded text-white transition ${
@@ -241,7 +287,9 @@ export default function TeamAdmin() {
 
             {imageUrl && (
               <div className="relative mt-2">
-                <img src={imageUrl} alt="" className="w-32 h-32 object-cover rounded" />
+                <a href={imageUrl} target="_blank" rel="noopener noreferrer">
+                  <img src={imageUrl} alt="" className="w-32 h-32 object-cover rounded cursor-pointer" />
+                </a>
                 <button
                   type="button"
                   onClick={() => handleImageDelete(editingId, imageUrl)}
@@ -277,11 +325,13 @@ export default function TeamAdmin() {
                   dangerouslySetInnerHTML={{ __html: m.bio }}
                 />
                 {m.imageUrl && (
-                  <img
-                    src={m.imageUrl}
-                    alt=""
-                    className="w-24 h-24 mt-2 object-cover rounded"
-                  />
+                  <a href={m.imageUrl} target="_blank" rel="noopener noreferrer">
+                    <img
+                      src={m.imageUrl}
+                      alt=""
+                      className="w-24 h-24 mt-2 object-cover rounded cursor-pointer"
+                    />
+                  </a>
                 )}
               </div>
 
