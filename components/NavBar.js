@@ -98,6 +98,11 @@ export default function NavBar() {
             <Link href="/contact"><span className="hover:underline">Contact</span></Link>
             <Link href="/team"><span className="hover:underline">Meet Our Team</span></Link>
             <Link href="/clinic-updates"><span className="hover:underline">Clinic Updates</span></Link>
+          {['master', 'officer'].includes(role) && (
+  <Link href="/admin/audit-study-a">
+    <span className="hover:underline">Audit Studies</span>
+  </Link>
+)}
           </nav>
         </div>
 
