@@ -65,7 +65,7 @@ export default function ClinicUpdatesAdmin() {
         const snap = await getDocs(q)
         const data = snap.docs.map((d) => {
           const raw = d.data()
-          const dateObj = raw.date?.seconds ? new Date(raw.date.seconds * 1000) : new Date()
+          const dateObj = raw.date?.seconds ? new Date(raw.date.seconds * 1000) : new Date(raw.date || Date.now())
           return { id: d.id, ...raw, date: dateObj }
         })
         setUpdates(data)
@@ -76,7 +76,7 @@ export default function ClinicUpdatesAdmin() {
       }
     }
     load()
-  }, [])
+  }, [activeCategory])
 
   const dateKeyFromDate = (d) => {
     if (!d) return null
@@ -96,8 +96,11 @@ export default function ClinicUpdatesAdmin() {
   const handleSave = async (e) => {
     e.preventDefault()
     try {
+      // upload image (if selected)
       const uploadedUrl = imageFile ? await uploadImageFile(imageFile) : imageUrlPreview || null
-      const data = {
+
+      // prepare base data (common fields)
+      const baseData = {
         title,
         body,
         category,
@@ -107,15 +110,24 @@ export default function ClinicUpdatesAdmin() {
         listedBy,
         referred: category === 'Social Welfare' ? referred : false,
         imageUrl: uploadedUrl || null,
-        date: serverTimestamp(),
       }
 
       if (editingId) {
-        await updateDoc(doc(db, 'clinic_updates', editingId), data)
+        // ------- EDITING: preserve original date, set updatedAt only -------
+        await updateDoc(doc(db, 'clinic_updates', editingId), {
+          ...baseData,
+          updatedAt: serverTimestamp(),
+        })
       } else {
-        await addDoc(collection(db, 'clinic_updates'), data)
+        // ------- NEW ENTRY: set date on creation -------
+        await addDoc(collection(db, 'clinic_updates'), {
+          ...baseData,
+          date: serverTimestamp(),
+          createdAt: serverTimestamp(),
+        })
       }
 
+      // reset form
       setTitle('')
       setBody('')
       setCategory('MDT')
@@ -129,13 +141,14 @@ export default function ClinicUpdatesAdmin() {
       setEditingId(null)
       setShowForm(false)
 
-      const snap = await getDocs(collection(db, 'clinic_updates'))
+      // reload list (keep ordering by date desc)
+      const snap = await getDocs(query(collection(db, 'clinic_updates'), orderBy('date', 'desc')))
       const list = snap.docs.map((d) => {
         const raw = d.data()
-        const dateObj = raw.date?.seconds ? new Date(raw.date.seconds * 1000) : new Date()
+        const dateObj = raw.date?.seconds ? new Date(raw.date.seconds * 1000) : new Date(raw.date || Date.now())
         return { id: d.id, ...raw, date: dateObj }
       })
-      setUpdates(list.sort((a, b) => b.date - a.date))
+      setUpdates(list)
     } catch (e) {
       console.error('Save clinic update error', e)
     }
@@ -153,6 +166,7 @@ export default function ClinicUpdatesAdmin() {
     setReferred(Boolean(u.referred))
     setImageUrlPreview(u.imageUrl || null)
     setShowForm(true)
+    // smooth scroll to top where the form is
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -277,7 +291,7 @@ export default function ClinicUpdatesAdmin() {
             <div key={u.id} className="p-4 border rounded bg-white dark:bg-gray-800 shadow-sm flex justify-between">
               <div>
                 <div className="font-semibold text-qehNavy dark:text-white flex items-center gap-2">
-                  {u.title}
+                  {u.title || (u.name ? u.name : 'Untitled')}
                   {u.category === 'Social Welfare' && (u.referred ? <span className="text-green-600">✅</span> : <span className="text-yellow-500">⚠️ Pending</span>)}
                 </div>
                 <div className="text-sm text-gray-600 dark:text-gray-300 mt-1">{u.category} • {u.date?.toLocaleString?.()}</div>
