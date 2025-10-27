@@ -35,25 +35,19 @@ export default function TeamAdmin() {
   const [position, setPosition] = useState("");
   const [rank, setRank] = useState("");
   const [bio, setBio] = useState("");
-  const [image, setImage] = useState(null); // new file chosen
-  const [imageUrl, setImageUrl] = useState(null); // existing URL when editing
+  const [image, setImage] = useState(null); // selected File object
+  const [imageUrl, setImageUrl] = useState(null); // preview/public url when editing
 
   const COLL = "team_members";
 
-  // Auth listener -> determine role
+  // 👤 Auth
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (u) {
-        try {
-          const token = await getIdTokenResult(u);
-          const r = token.claims?.role?.toLowerCase() || "public";
-          setUser(u);
-          setRole(r);
-        } catch (e) {
-          console.error("Token error:", e);
-          setUser(u);
-          setRole("public");
-        }
+        const token = await getIdTokenResult(u);
+        const r = token.claims?.role?.toLowerCase() || "public";
+        setUser(u);
+        setRole(r);
       } else {
         setUser(null);
         setRole("public");
@@ -63,30 +57,29 @@ export default function TeamAdmin() {
     return () => unsub();
   }, []);
 
-  // Load members sorted by rank
-  async function loadMembers() {
-    try {
-      const q = query(collection(db, COLL), orderBy("rank", "asc"));
-      const snap = await getDocs(q);
-      setMembers(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    } catch (e) {
-      console.error("Load error:", e);
-    }
-  }
-
+  // 🔄 Load members sorted by rank
   useEffect(() => {
-    loadMembers();
+    async function load() {
+      try {
+        const q = query(collection(db, COLL), orderBy("rank", "asc"));
+        const snap = await getDocs(q);
+        setMembers(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      } catch (e) {
+        console.error("Load error:", e);
+      }
+    }
+    load();
   }, []);
 
-  // Upload image and return { url, path }
+  // Upload file -> returns { url, path } where path is storage path (e.g. team/ts_filename.jpg)
   const handleImageUpload = async (file) => {
     if (!file) return null;
     try {
       const timestamp = Date.now();
-      const safeName = file.name.replace(/\s+/g, "_");
+      const safeName = file.name.replace(/\s+/g, '_');
       const storagePath = `team/${timestamp}_${safeName}`;
       const storageRef = ref(storage, storagePath);
-      const metadata = { contentType: file.type || "image/jpeg" };
+      const metadata = { contentType: file.type || 'image/jpeg' };
       await uploadBytes(storageRef, file, metadata);
       const url = await getDownloadURL(storageRef);
       return { url, path: storagePath };
@@ -96,69 +89,94 @@ export default function TeamAdmin() {
     }
   };
 
-  // Delete image by deriving storage path from download URL and clear Firestore field + UI
-  const handleImageDelete = async (id, url) => {
-    if (!url && !id) return;
+  // Delete image by preferring known storagePath; fallback to parse download URL
+  const handleImageDelete = async (id, maybeImagePath, maybeImageUrl) => {
+    if (!id && !maybeImagePath && !maybeImageUrl) return;
 
     try {
       let deletedFromStorage = false;
 
-      if (url) {
+      // 1) If we have a storage path stored in the doc, delete with that first (reliable)
+      if (maybeImagePath) {
         try {
-          const parts = url.split("/o/");
+          const imgRef = ref(storage, maybeImagePath);
+          await deleteObject(imgRef);
+          deletedFromStorage = true;
+          console.log('Deleted image from storage by path:', maybeImagePath);
+        } catch (err) {
+          console.warn('Could not delete image by stored path:', err?.message || err);
+        }
+      }
+
+      // 2) Fallback: if we have only a download URL, attempt to derive encoded path and delete
+      if (!deletedFromStorage && maybeImageUrl) {
+        try {
+          const parts = maybeImageUrl.split('/o/');
           if (parts.length > 1) {
             const pathAndQuery = parts[1];
-            const encodedPath = pathAndQuery.split("?")[0];
-            const storagePath = decodeURIComponent(encodedPath); // e.g. team/123_filename.jpg
+            const encodedPath = pathAndQuery.split('?')[0];
+            const storagePath = decodeURIComponent(encodedPath);
             const imgRef = ref(storage, storagePath);
             await deleteObject(imgRef);
             deletedFromStorage = true;
-            console.log("Deleted from storage:", storagePath);
-          } else {
-            // fallback: try direct path ref (unlikely)
-            const fallbackRef = ref(storage, url);
-            await deleteObject(fallbackRef);
-            deletedFromStorage = true;
-            console.log("Deleted via fallback ref");
+            console.log('Deleted image from storage by derived path:', storagePath);
           }
         } catch (err) {
-          console.warn("Could not delete object from storage:", err?.message || err);
+          console.warn('Could not delete object from storage using URL fallback:', err?.message || err);
         }
       }
 
-      // Clear Firestore imageUrl
+      // 3) Clear Firestore fields (imageUrl and imagePath)
       if (id) {
         try {
-          await updateDoc(doc(db, COLL, id), { imageUrl: null, updatedAt: serverTimestamp() });
+          await updateDoc(doc(db, COLL, id), { imageUrl: null, imagePath: null });
+          console.log('Cleared imageUrl and imagePath in Firestore for id:', id);
         } catch (e) {
-          console.warn("Could not clear Firestore imageUrl:", e?.message || e);
+          console.warn('Could not clear imageUrl/imagePath in Firestore:', e?.message || e);
         }
       }
 
-      // Update local UI immediately
-      setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, imageUrl: null } : m)));
+      // 4) Update local UI state so placeholder disappears immediately
+      setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, imageUrl: null, imagePath: null } : m)));
       setImageUrl(null);
       setImage(null);
 
       if (!deletedFromStorage) {
-        // Storage deletion may be blocked by rules; user is notified but UI cleared
-        console.warn("Storage deletion may have failed (permissions?). Check Firebase console and rules.");
+        // Most likely permission issue; inform user but it's non-blocking
+        console.warn('Image deletion attempted but may have failed due to Storage permissions.');
       }
     } catch (e) {
-      console.error("Error deleting image:", e);
-      alert("Unexpected error deleting image — check console for details.");
+      console.error('Error deleting image:', e);
+      alert('Unexpected error deleting image — check console for details.');
     }
   };
 
-  // Save handler (create or update). Keeps rank numeric.
   const handleSave = async (e) => {
     e.preventDefault();
     try {
-      // 1) determine image url to use: new upload takes priority
+      // Find currently editing doc (if editing)
+      const prevData = editingId ? members.find((m) => m.id === editingId) : null;
+
+      // If a new file is selected, upload it and get url/path.
+      // If no new file but imageUrl exists (from editing), keep it.
       let uploadedUrl = imageUrl || null;
+      let uploadedPath = prevData?.imagePath || null;
+
       if (image) {
-        const uploaded = await handleImageUpload(image); // { url, path }
+        // If we have an existing storage file (previous image), try to delete it first
+        if (prevData?.imagePath) {
+          try {
+            const prevRef = ref(storage, prevData.imagePath);
+            await deleteObject(prevRef);
+            console.log('Deleted previous storage image before uploading new one:', prevData.imagePath);
+          } catch (err) {
+            console.warn('Could not delete previous storage image (non-fatal):', err?.message || err);
+          }
+        }
+
+        const uploaded = await handleImageUpload(image); // {url, path}
         uploadedUrl = uploaded?.url || uploadedUrl;
+        uploadedPath = uploaded?.path || uploadedPath;
       }
 
       if (editingId) {
@@ -167,7 +185,8 @@ export default function TeamAdmin() {
           position,
           rank: Number(rank) || 999,
           bio,
-          imageUrl: uploadedUrl,
+          imageUrl: uploadedUrl || null,
+          imagePath: uploadedPath || null,
           updatedAt: serverTimestamp(),
         });
       } else {
@@ -176,12 +195,13 @@ export default function TeamAdmin() {
           position,
           rank: Number(rank) || 999,
           bio,
-          imageUrl: uploadedUrl,
+          imageUrl: uploadedUrl || null,
+          imagePath: uploadedPath || null,
           createdAt: serverTimestamp(),
         });
       }
 
-      // clear form state
+      // clear form
       setName("");
       setPosition("");
       setRank("");
@@ -191,42 +211,37 @@ export default function TeamAdmin() {
       setEditingId(null);
       setShowForm(false);
 
-      // scroll to top and refresh members without full reload
+      // scroll top and refresh listing
       window.scrollTo({ top: 0, behavior: "smooth" });
-      await loadMembers();
+      const q = query(collection(db, COLL), orderBy("rank", "asc"));
+      const snap = await getDocs(q);
+      setMembers(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     } catch (e) {
       console.error("Save error:", e);
-      alert("Failed to save. See console for details.");
+      alert("Failed to save. Check console for details.");
     }
   };
 
-  // Fill form for edit and scroll to form
   const handleEdit = (m) => {
     setEditingId(m.id);
-    setName(m.name || "");
-    setPosition(m.position || "");
-    setRank(m.rank?.toString() || "");
-    setBio(m.bio || "");
+    setName(m.name);
+    setPosition(m.position);
+    setRank(m.rank || "");
+    setBio(m.bio);
     setImageUrl(m.imageUrl || null);
     setShowForm(true);
+    // scroll to form
     setTimeout(() => {
       formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 150);
+    }, 200);
   };
 
-  // Delete member
   const handleDelete = async (id) => {
     if (!confirm("Delete this member?")) return;
-    try {
-      await deleteDoc(doc(db, COLL, id));
-      setMembers((prev) => prev.filter((m) => m.id !== id));
-    } catch (e) {
-      console.error("Delete error:", e);
-      alert("Failed to delete. See console for details.");
-    }
+    await deleteDoc(doc(db, COLL, id));
+    setMembers(members.filter((m) => m.id !== id));
   };
 
-  // Move item up/down and update ranks in Firestore
   const moveItem = async (index, direction) => {
     const newIndex = direction === "up" ? index - 1 : index + 1;
     if (newIndex < 0 || newIndex >= members.length) return;
@@ -236,16 +251,12 @@ export default function TeamAdmin() {
     updated[index] = updated[newIndex];
     updated[newIndex] = temp;
 
-    try {
-      // write new ranks (i+1)
-      await Promise.all(
-        updated.map((item, i) => updateDoc(doc(db, COLL, item.id), { rank: i + 1 }))
-      );
-      setMembers(updated);
-    } catch (e) {
-      console.error("Rank update failed:", e);
-      alert("Failed to update ranks. See console.");
-    }
+    await Promise.all(
+      updated.map((item, i) =>
+        updateDoc(doc(db, COLL, item.id), { rank: i + 1 })
+      )
+    );
+    setMembers(updated);
   };
 
   if (loading) return <Layout><div className="p-6">Loading...</div></Layout>;
@@ -318,7 +329,14 @@ export default function TeamAdmin() {
               required
             />
             <ReactQuill theme="snow" value={bio} onChange={setBio} />
-            <input type="file" onChange={(e) => setImage(e.target.files[0])} accept="image/*" />
+            <input
+              type="file"
+              onChange={(e) => {
+                setImage(e.target.files[0] || null);
+                // If user picks a different file, keep existing preview URL until upload completes
+              }}
+              accept="image/*"
+            />
 
             {imageUrl && (
               <div className="relative mt-2">
@@ -327,7 +345,7 @@ export default function TeamAdmin() {
                 </a>
                 <button
                   type="button"
-                  onClick={() => handleImageDelete(editingId, imageUrl)}
+                  onClick={() => handleImageDelete(editingId, members.find(m => m.id === editingId)?.imagePath, imageUrl)}
                   className="absolute top-1 right-1 bg-red-500 text-white rounded-full px-2 text-xs"
                 >
                   ✕
@@ -352,7 +370,7 @@ export default function TeamAdmin() {
             >
               <div>
                 <h3 className="font-semibold text-qehNavy dark:text-white text-lg">
-                  {m.name} <span className="text-gray-400 text-sm">({m.rank || "-"})</span>
+                  {m.name} <span className="text-gray-400 text-sm">({m.rank || '-'})</span>
                 </h3>
                 <div className="text-gray-600 dark:text-gray-300">{m.position}</div>
                 <div
@@ -371,18 +389,16 @@ export default function TeamAdmin() {
               </div>
 
               <div className="flex flex-col sm:flex-row gap-2 items-center justify-end">
-                <div className="flex flex-col mr-2">
+                <div className="flex flex-col">
                   <button
                     onClick={() => moveItem(index, "up")}
                     className="bg-gray-300 hover:bg-gray-400 text-gray-800 text-xs rounded px-2 py-1 mb-1"
-                    title="Move up"
                   >
                     ↑
                   </button>
                   <button
                     onClick={() => moveItem(index, "down")}
                     className="bg-gray-300 hover:bg-gray-400 text-gray-800 text-xs rounded px-2 py-1"
-                    title="Move down"
                   >
                     ↓
                   </button>
