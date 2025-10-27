@@ -90,39 +90,66 @@ export default function TeamAdmin() {
   };
 
   // Delete image by deriving storage path from download URL
-  const handleImageDelete = async (id, url) => {
-    try {
-      if (url) {
-        // Firebase download URLs look like:
-        // https://firebasestorage.googleapis.com/v0/b/<bucket>/o/team%2F123_filename.jpg?alt=media&token=...
-        // Extract encoded path between '/o/' and '?'
+ // Make sure you have these imports at the top of the file:
+// import { ref, deleteObject } from 'firebase/storage'
+// import { doc, updateDoc } from 'firebase/firestore'
+
+const handleImageDelete = async (id, url) => {
+  if (!url && !id) return;
+
+  try {
+    // 1) Try to find the storage path from a Firebase download URL
+    let deletedFromStorage = false;
+    if (url) {
+      try {
         const parts = url.split('/o/');
         if (parts.length > 1) {
           const pathAndQuery = parts[1];
           const encodedPath = pathAndQuery.split('?')[0];
           const storagePath = decodeURIComponent(encodedPath); // e.g. team/123_filename.jpg
           const imgRef = ref(storage, storagePath);
-          await deleteObject(imgRef).catch((err) => {
-            // ignore if not found
-            console.warn("Could not delete object from storage:", err?.message || err);
-          });
+          await deleteObject(imgRef);
+          deletedFromStorage = true;
+          console.log('✅ Deleted from storage:', storagePath);
         } else {
-          // fallback - try to use the url directly (may fail)
-          const imgRef = ref(storage, url);
-          await deleteObject(imgRef).catch(() => {});
+          // Fallback: try using the raw URL as a ref (may fail)
+          const fallbackRef = ref(storage, url);
+          await deleteObject(fallbackRef);
+          deletedFromStorage = true;
+          console.log('✅ Deleted from storage using fallback ref');
         }
+      } catch (err) {
+        // Provide a clear console message (don't abort — we'll still clear Firestore if possible)
+        console.warn('Could not delete object from storage. Check path/rules. Error:', err.message || err);
       }
-      // Update Firestore doc to remove imageUrl
-      if (id) {
-        await updateDoc(doc(db, COLL, id), { imageUrl: null }).catch(() => {});
-      }
-      // update local state
-      setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, imageUrl: null } : m)));
-      setImageUrl(null);
-    } catch (e) {
-      console.error("Error deleting image:", e);
     }
-  };
+
+    // 2) Clear Firestore imageUrl field
+    if (id) {
+      try {
+        await updateDoc(doc(db, COLL, id), { imageUrl: null });
+        console.log('✅ Cleared imageUrl in Firestore for id:', id);
+      } catch (e) {
+        console.warn('Could not clear Firestore imageUrl:', e.message || e);
+      }
+    }
+
+    // 3) Update local UI state so placeholder disappears immediately
+    setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, imageUrl: null } : m)));
+    // If you use a per-item preview state, clear it too:
+    setImageUrl && setImageUrl(null);
+    setImage && setImage(null);
+
+    // 4) If neither storage nor firestore deletion succeeded, notify user
+    if (!deletedFromStorage) {
+      // The storage deletion might be blocked by rules; let the user know
+      alert('Image deletion attempted but may have failed due to Storage permissions. Check console for details.');
+    }
+  } catch (e) {
+    console.error('Error deleting image:', e);
+    alert('Unexpected error deleting image — check console for details.');
+  }
+};
 
   const handleSave = async (e) => {
     e.preventDefault();
