@@ -84,7 +84,8 @@ export default function TeamAdmin() {
       const url = await getDownloadURL(storageRef);
       return { url, path: storagePath };
     } catch (e) {
-      console.error("Image upload failed:", e);
+      // bubble up so caller can decide; but include a helpful message
+      console.error("Image upload failed (likely CORS or bucket misconfiguration):", e);
       throw e;
     }
   };
@@ -143,7 +144,7 @@ export default function TeamAdmin() {
 
       if (!deletedFromStorage) {
         // Most likely permission issue; inform user but it's non-blocking
-        console.warn('Image deletion attempted but may have failed due to Storage permissions.');
+        console.warn('Image deletion attempted but may have failed due to Storage permissions or bucket misconfiguration.');
       }
     } catch (e) {
       console.error('Error deleting image:', e);
@@ -174,31 +175,39 @@ export default function TeamAdmin() {
           }
         }
 
-        const uploaded = await handleImageUpload(image); // {url, path}
-        uploadedUrl = uploaded?.url || uploadedUrl;
-        uploadedPath = uploaded?.path || uploadedPath;
+        try {
+          const uploaded = await handleImageUpload(image); // {url, path}
+          uploadedUrl = uploaded?.url || uploadedUrl;
+          uploadedPath = uploaded?.path || uploadedPath;
+        } catch (uploadErr) {
+          console.error('Upload failed — proceeding without new image. Fix bucket/CORS and retry if necessary.', uploadErr);
+          alert('Image upload failed (likely a bucket/CORS issue). The record will still be saved without changing the image.');
+          // keep previously-known imageUrl/path (uploadedUrl, uploadedPath)
+        }
       }
 
+      // Build update/add payload with only defined values (avoid `undefined` fields)
+      const fields = {
+        name: name ?? "",
+        position: position ?? "",
+        rank: Number(rank) || 999,
+        bio: bio ?? "",
+        updatedAt: serverTimestamp(),
+      };
+
+      // attach image fields (explicit null when no url)
+      fields.imageUrl = uploadedUrl || null;
+      fields.imagePath = uploadedPath || null;
+
       if (editingId) {
-        await updateDoc(doc(db, COLL, editingId), {
-          name,
-          position,
-          rank: Number(rank) || 999,
-          bio,
-          imageUrl: uploadedUrl || null,
-          imagePath: uploadedPath || null,
-          updatedAt: serverTimestamp(),
-        });
+        // remove updatedAt before building final object is OK but we want it to exist
+        await updateDoc(doc(db, COLL, editingId), fields);
       } else {
-        await addDoc(collection(db, COLL), {
-          name,
-          position,
-          rank: Number(rank) || 999,
-          bio,
-          imageUrl: uploadedUrl || null,
-          imagePath: uploadedPath || null,
-          createdAt: serverTimestamp(),
-        });
+        // add createdAt instead of updatedAt for new doc
+        const addFields = { ...fields };
+        addFields.createdAt = serverTimestamp();
+        delete addFields.updatedAt;
+        await addDoc(collection(db, COLL), addFields);
       }
 
       // clear form
@@ -227,7 +236,7 @@ export default function TeamAdmin() {
     setName(m.name);
     setPosition(m.position);
     setRank(m.rank || "");
-    setBio(m.bio);
+    setBio(m.bio || "");
     setImageUrl(m.imageUrl || null);
     setShowForm(true);
     // scroll to form
@@ -333,7 +342,6 @@ export default function TeamAdmin() {
               type="file"
               onChange={(e) => {
                 setImage(e.target.files[0] || null);
-                // If user picks a different file, keep existing preview URL until upload completes
               }}
               accept="image/*"
             />
