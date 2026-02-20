@@ -1,0 +1,6 @@
+# Ignore backup and build files
+pages/BACKUP/
+BACKUP/
+.next/
+node_modules/
+serviceAccountKey.json
